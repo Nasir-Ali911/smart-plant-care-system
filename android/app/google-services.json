@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "1031688894365",
+    "project_id": "smart-plant-care-fyp-2026",
+    "storage_bucket": "smart-plant-care-fyp-2026.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:1031688894365:android:d7466dfb06e90b6a7da174",
+        "android_client_info": {
+          "package_name": "com.example.smart_plant_care"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBPoUhpPEE-15YPx7AfJa1OU45ayBgYSPA"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
