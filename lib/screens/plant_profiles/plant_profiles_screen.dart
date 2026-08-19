@@ -6,7 +6,7 @@ import '../../models/plant_model.dart';
 import '../add_plant/add_plant_screen.dart';
 
 // Change this path if PlantCard is stored somewhere else.
-import 'widgets/plant_card.dart';
+import '../../widgets/plant_card.dart';
 
 class PlantProfilesScreen extends StatefulWidget {
   const PlantProfilesScreen({Key? key}) : super(key: key);
