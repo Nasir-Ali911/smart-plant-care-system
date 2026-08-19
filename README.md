@@ -2,7 +2,7 @@
 
 A smart IoT-based plant monitoring and care system developed as a Final Year Project (FYP) for the Virtual University of Pakistan.
 
-The system combines **IoT sensors, ESP32, Firebase, Flutter, and AI-based monitoring concepts** to help users monitor plant environmental conditions and manage plant information through a mobile application.
+The system combines **IoT sensors, esp8622, Firebase, Flutter, and AI-based monitoring concepts** to help users monitor plant environmental conditions and manage plant information through a mobile application.
 
 ---
 
@@ -130,7 +130,7 @@ Additional hardware such as a relay and water pump can be integrated in future d
                         │
                         ▼
                 ┌──────────────┐
-                │     ESP32    │
+                │     esp8622    │
                 └──────┬───────┘
                        │ Wi-Fi
                        ▼
@@ -174,7 +174,7 @@ The Flutter application retrieves the stored data and presents it to the user th
 ```text
 Sensors
    ↓
-ESP32
+esp8622
    ↓
 Wi-Fi
    ↓
@@ -263,10 +263,10 @@ flutter run --release
 arduino/smart_plant_care/
 ```
 
-2. Configure the ESP32 board in Arduino IDE.
+2. Configure the esp8622 board in Arduino IDE.
 3. Connect the required sensors.
 4. Configure Wi-Fi credentials locally.
-5. Upload the firmware to the ESP32.
+5. Upload the firmware to the esp8622.
 6. Open the Serial Monitor to verify sensor readings.
 7. Verify that readings are synchronized with Firebase.
 
@@ -328,7 +328,6 @@ Future versions of the system may include:
 * Plant disease prediction
 * Notification and alert system
 * Advanced historical sensor analytics
-* Machine-learning-based plant health prediction
 
 ---
 
@@ -343,7 +342,7 @@ The current prototype includes:
 * ✅ Flutter mobile application
 * ✅ Android APK
 * ✅ Firebase integration
-* ✅ ESP32 IoT module
+* ✅ ESP8622 IoT module
 * ✅ Soil moisture monitoring
 * ✅ Temperature monitoring
 * ✅ Humidity monitoring
