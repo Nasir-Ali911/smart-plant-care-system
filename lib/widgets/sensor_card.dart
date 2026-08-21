@@ -41,7 +41,10 @@ class SensorCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          // ======================================================
           // TOP ROW
+          // ======================================================
+
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
@@ -57,6 +60,7 @@ class SensorCard extends StatelessWidget {
                   size: 22,
                 ),
               ),
+
               const Icon(
                 Icons.more_vert,
                 color: AppColors.textSecondary,
@@ -67,7 +71,10 @@ class SensorCard extends StatelessWidget {
 
           const SizedBox(height: 10),
 
+          // ======================================================
           // TITLE
+          // ======================================================
+
           Text(
             title,
             maxLines: 1,
@@ -79,29 +86,42 @@ class SensorCard extends StatelessWidget {
             ),
           ),
 
-          const SizedBox(height: 4),
+          const SizedBox(height: 5),
 
-          // VALUE + UNIT
+          // ======================================================
+          // VALUE + STATUS
+          // ======================================================
+
           Row(
-            crossAxisAlignment: CrossAxisAlignment.end,
+            crossAxisAlignment: CrossAxisAlignment.center,
             children: [
-              Flexible(
+              // --------------------------------------------------
+              // VALUE
+              // --------------------------------------------------
+
+              Expanded(
                 child: Text(
                   value,
-                  maxLines: 1,
+                  maxLines: 2,
                   overflow: TextOverflow.ellipsis,
                   style: const TextStyle(
-                    fontSize: 22,
+                    fontSize: 21,
                     fontWeight: FontWeight.bold,
                     color: AppColors.textPrimary,
+                    height: 1.15,
                   ),
                 ),
               ),
 
+              // --------------------------------------------------
+              // UNIT
+              // --------------------------------------------------
+
               if (unit.isNotEmpty) ...[
                 const SizedBox(width: 4),
+
                 Padding(
-                  padding: const EdgeInsets.only(bottom: 3),
+                  padding: const EdgeInsets.only(bottom: 2),
                   child: Text(
                     unit,
                     maxLines: 1,
@@ -114,25 +134,104 @@ class SensorCard extends StatelessWidget {
                   ),
                 ),
               ],
+
+              // --------------------------------------------------
+              // STATUS BADGE
+              // --------------------------------------------------
+
+              if (status != null && status!.isNotEmpty) ...[
+                const SizedBox(width: 8),
+
+                Flexible(
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 9,
+                      vertical: 5,
+                    ),
+                    decoration: BoxDecoration(
+                      color: _getStatusBackgroundColor(status!),
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    child: Text(
+                      status!,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        fontSize: 10,
+                        fontWeight: FontWeight.w600,
+                        color: _getStatusTextColor(status!),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
             ],
           ),
-
-          // STATUS
-          if (status != null && status!.isNotEmpty) ...[
-            const SizedBox(height: 3),
-            Text(
-              status!,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(
-                fontSize: 11,
-                fontWeight: FontWeight.w600,
-                color: AppColors.textSecondary,
-              ),
-            ),
-          ],
         ],
       ),
     );
+  }
+
+  // ============================================================
+  // STATUS BACKGROUND COLOR
+  // ============================================================
+
+  Color _getStatusBackgroundColor(String status) {
+    final String normalized = status.toLowerCase();
+
+    if (normalized.contains('needs water') ||
+        normalized.contains('dry')) {
+      return Colors.red.withOpacity(0.10);
+    }
+
+    if (normalized.contains('high')) {
+      return Colors.orange.withOpacity(0.10);
+    }
+
+    if (normalized.contains('low')) {
+      return Colors.blue.withOpacity(0.10);
+    }
+
+    if (normalized.contains('normal')) {
+      return Colors.green.withOpacity(0.10);
+    }
+
+    if (normalized.contains('waiting')) {
+      return Colors.grey.withOpacity(0.10);
+    }
+
+    return AppColors.primary.withOpacity(0.10);
+  }
+
+  // ============================================================
+  // STATUS TEXT COLOR
+  // ============================================================
+
+  Color _getStatusTextColor(String status) {
+    final String normalized = status.toLowerCase();
+
+    if (normalized.contains('needs water') ||
+        normalized.contains('dry')) {
+      return Colors.red.shade700;
+    }
+
+    if (normalized.contains('high')) {
+      return Colors.orange.shade700;
+    }
+
+    if (normalized.contains('low')) {
+      return Colors.blue.shade700;
+    }
+
+    if (normalized.contains('normal')) {
+      return Colors.green.shade700;
+    }
+
+    if (normalized.contains('waiting')) {
+      return Colors.grey.shade700;
+    }
+
+    return AppColors.primary;
   }
 }
