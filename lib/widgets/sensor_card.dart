@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+
 import 'package:smart_plant_care/constants/app_colors.dart';
 
 class SensorCard extends StatelessWidget {
@@ -7,14 +8,16 @@ class SensorCard extends StatelessWidget {
   final IconData icon;
   final Color iconColor;
   final String unit;
+  final String? status;
 
   const SensorCard({
     super.key,
     required this.title,
     required this.value,
     required this.icon,
-    required this.iconColor,
-    required this.unit,
+    this.iconColor = AppColors.primary,
+    this.unit = '',
+    this.status,
   });
 
   @override
@@ -31,12 +34,14 @@ class SensorCard extends StatelessWidget {
             offset: const Offset(0, 4),
           ),
         ],
-        border: Border.all(color: AppColors.divider),
+        border: Border.all(
+          color: AppColors.divider,
+        ),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
+          // TOP ROW
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
@@ -59,41 +64,73 @@ class SensorCard extends StatelessWidget {
               ),
             ],
           ),
-          const SizedBox(height: 12),
+
+          const SizedBox(height: 10),
+
+          // TITLE
           Text(
             title,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
             style: const TextStyle(
               fontSize: 13,
               fontWeight: FontWeight.w500,
               color: AppColors.textSecondary,
             ),
           ),
+
           const SizedBox(height: 4),
+
+          // VALUE + UNIT
           Row(
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
-              Text(
-                value,
-                style: const TextStyle(
-                  fontSize: 22,
-                  fontWeight: FontWeight.bold,
-                  color: AppColors.textPrimary,
-                ),
-              ),
-              const SizedBox(width: 4),
-              Padding(
-                padding: const EdgeInsets.only(bottom: 3),
+              Flexible(
                 child: Text(
-                  unit,
+                  value,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                   style: const TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600,
-                    color: AppColors.textSecondary,
+                    fontSize: 22,
+                    fontWeight: FontWeight.bold,
+                    color: AppColors.textPrimary,
                   ),
                 ),
               ),
+
+              if (unit.isNotEmpty) ...[
+                const SizedBox(width: 4),
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 3),
+                  child: Text(
+                    unit,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      color: AppColors.textSecondary,
+                    ),
+                  ),
+                ),
+              ],
             ],
           ),
+
+          // STATUS
+          if (status != null && status!.isNotEmpty) ...[
+            const SizedBox(height: 3),
+            Text(
+              status!,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.w600,
+                color: AppColors.textSecondary,
+              ),
+            ),
+          ],
         ],
       ),
     );

@@ -2,19 +2,21 @@ import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_database/firebase_database.dart';
 import 'firebase_options.dart';
-import 'package:smart_plant_care/routes/app_router.dart'; // Ensure this matches your actual router file path and name
+import 'package:smart_plant_care/routes/app_router.dart';
 
-void main() async {
-  WidgetsFlutterBinding.ensureInitialized();
-  
-  // Initialize Firebase for the current platform
+final Future<void> firebaseInitialization = _initializeFirebase();
+
+Future<void> _initializeFirebase() async {
   await Firebase.initializeApp(
     options: DefaultFirebaseOptions.currentPlatform,
   );
 
-  // Explicitly connect to your Realtime Database instance URL
-  FirebaseDatabase.instance.databaseURL = 
+  FirebaseDatabase.instance.databaseURL =
       'https://smart-plant-care-fyp-2026-default-rtdb.firebaseio.com';
+}
+
+void main() {
+  WidgetsFlutterBinding.ensureInitialized();
 
   runApp(const MyApp());
 }
@@ -27,11 +29,12 @@ class MyApp extends StatelessWidget {
     return MaterialApp.router(
       title: 'Smart Plant Care',
       theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.green),
+        colorScheme: ColorScheme.fromSeed(
+          seedColor: Colors.green,
+        ),
         useMaterial3: true,
       ),
-      // Pass the static router instance from the AppRouter class
-      routerConfig: AppRouter.router, 
+      routerConfig: AppRouter.router,
       debugShowCheckedModeBanner: false,
     );
   }

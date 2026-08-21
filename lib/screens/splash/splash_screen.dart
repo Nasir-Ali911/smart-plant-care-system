@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../main.dart';
+
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
 
@@ -13,25 +15,34 @@ class _SplashScreenState extends State<SplashScreen> {
   @override
   void initState() {
     super.initState();
-    Future.delayed(const Duration(seconds: 3), () {
-      if (!mounted) return;
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) {
-          context.go('/login');
-        }
-      });
-    });
+    _initializeApp();
+  }
+
+  Future<void> _initializeApp() async {
+    try {
+      // Keep the splash screen visible for at least 3 seconds
+      await Future.wait([
+        firebaseInitialization,
+        Future.delayed(const Duration(seconds: 3)),
+      ]);
+    } catch (error) {
+      debugPrint('Startup initialization error: $error');
+
+      // Still wait briefly so the splash does not disappear abruptly.
+      await Future.delayed(const Duration(seconds: 1));
+    }
+
+    if (!mounted) return;
+
+    // Navigate only after initialization and after the widget is mounted.
+    context.go('/login');
   }
 
   @override
   Widget build(BuildContext context) {
-    final mediaQuery = MediaQuery.of(context);
-    final screenHeight = mediaQuery.size.height;
-
     return Scaffold(
       backgroundColor: const Color(0xFFE4EDE6),
       body: Center(
-        // Constrain max width so it mimics a mobile device screen on web/tablets
         child: Container(
           constraints: const BoxConstraints(maxWidth: 480),
           child: Stack(
@@ -43,8 +54,8 @@ class _SplashScreenState extends State<SplashScreen> {
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
                       const Spacer(flex: 2),
-                      
-                      // --- Logo and Circular Background ---
+
+                      // Logo and circular background
                       Center(
                         child: Container(
                           width: 220,
@@ -62,9 +73,10 @@ class _SplashScreenState extends State<SplashScreen> {
                           ),
                         ),
                       ),
+
                       const SizedBox(height: 28),
-                      
-                      // --- Title ---
+
+                      // Title
                       Text(
                         'Smart Plant Care',
                         textAlign: TextAlign.center,
@@ -74,9 +86,10 @@ class _SplashScreenState extends State<SplashScreen> {
                           color: const Color(0xFF134E39),
                         ),
                       ),
+
                       const SizedBox(height: 8),
-                      
-                      // --- Subtitle ---
+
+                      // Subtitle
                       Text(
                         'AI-Based Plant Monitoring System',
                         textAlign: TextAlign.center,
@@ -86,18 +99,19 @@ class _SplashScreenState extends State<SplashScreen> {
                           color: const Color(0xFF5A7865),
                         ),
                       ),
-                      
+
                       const Spacer(flex: 3),
-                      
-                      // --- Bottom Icon ---
+
+                      // Bottom icon
                       const Icon(
                         Icons.spa_outlined,
                         size: 32,
                         color: Color(0xFF134E39),
                       ),
+
                       const SizedBox(height: 12),
-                      
-                      // --- Version Text ---
+
+                      // Version
                       Text(
                         'Version 1.0.0',
                         textAlign: TextAlign.center,
@@ -107,13 +121,14 @@ class _SplashScreenState extends State<SplashScreen> {
                           color: const Color(0xFF134E39),
                         ),
                       ),
+
                       const SizedBox(height: 40),
                     ],
                   ),
                 ),
               ),
-              
-              // --- Bottom Curve ---
+
+              // Bottom curve
               Positioned(
                 bottom: 0,
                 left: 0,
@@ -138,16 +153,20 @@ class BottomCurveClipper extends CustomClipper<Path> {
   @override
   Path getClip(Size size) {
     final path = Path();
+
     path.lineTo(0, 35);
+
     path.quadraticBezierTo(
       size.width / 2,
       -25,
       size.width,
       35,
     );
+
     path.lineTo(size.width, size.height);
     path.lineTo(0, size.height);
     path.close();
+
     return path;
   }
 

@@ -5,7 +5,10 @@ import 'package:firebase_database/firebase_database.dart';
 class DeviceStatusCard extends StatelessWidget {
   const DeviceStatusCard({super.key});
 
-  // Convert Wi-Fi RSSI (-30 to -90 dBm) into an approximate percentage.
+  // ==============================================================
+  // RSSI TO PERCENTAGE
+  // ==============================================================
+
   int _rssiToPercentage(int rssi) {
     int percentage = 2 * (rssi + 100);
 
@@ -19,6 +22,10 @@ class DeviceStatusCard extends StatelessWidget {
 
     return percentage;
   }
+
+  // ==============================================================
+  // BUILD
+  // ==============================================================
 
   @override
   Widget build(BuildContext context) {
@@ -34,6 +41,7 @@ class DeviceStatusCard extends StatelessWidget {
 
         if (snapshot.connectionState == ConnectionState.waiting) {
           return _buildCard(
+            context: context,
             status: 'Connecting...',
             rssiText: '--',
             signalPercentage: 0,
@@ -47,6 +55,7 @@ class DeviceStatusCard extends StatelessWidget {
 
         if (snapshot.hasError) {
           return _buildCard(
+            context: context,
             status: 'Connection Error',
             rssiText: '--',
             signalPercentage: 0,
@@ -55,19 +64,24 @@ class DeviceStatusCard extends StatelessWidget {
         }
 
         // ----------------------------------------------------------
-        // Firebase Data
+        // Default values
         // ----------------------------------------------------------
 
         String status = 'Offline';
         int wifiRSSI = 0;
 
-        if (snapshot.hasData && snapshot.data!.snapshot.value != null) {
-          final data = snapshot.data!.snapshot.value;
+        // ----------------------------------------------------------
+        // Firebase data
+        // ----------------------------------------------------------
+
+        if (snapshot.hasData &&
+            snapshot.data!.snapshot.value != null) {
+          final dynamic data = snapshot.data!.snapshot.value;
 
           if (data is Map) {
             status = data['Status']?.toString() ?? 'Offline';
 
-            final rssiValue = data['WiFiRSSI'];
+            final dynamic rssiValue = data['WiFiRSSI'];
 
             if (rssiValue is int) {
               wifiRSSI = rssiValue;
@@ -92,6 +106,7 @@ class DeviceStatusCard extends StatelessWidget {
             wifiRSSI == 0 ? '--' : '$wifiRSSI dBm';
 
         return _buildCard(
+          context: context,
           status: isConnected ? 'Connected' : 'Offline',
           rssiText: rssiText,
           signalPercentage: signalPercentage,
@@ -106,12 +121,14 @@ class DeviceStatusCard extends StatelessWidget {
   // ==============================================================
 
   Widget _buildCard({
+    required BuildContext context,
     required String status,
     required String rssiText,
     required int signalPercentage,
     required bool isConnected,
   }) {
     return Container(
+      width: double.infinity,
       padding: const EdgeInsets.all(16.0),
       decoration: BoxDecoration(
         color: Colors.white,
@@ -120,129 +137,231 @@ class DeviceStatusCard extends StatelessWidget {
           color: const Color(0xFFD0E2D4),
         ),
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final double width = constraints.maxWidth;
 
-          // --------------------------------------------------------
-          // Header
-          // --------------------------------------------------------
+          // Use a stacked header on narrow screens.
+          final bool isNarrow = width < 360;
 
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              // ----------------------------------------------------
+              // HEADER
+              // ----------------------------------------------------
 
-              Expanded(
-                child: Row(
-                  children: [
+              if (isNarrow)
+                _buildNarrowHeader(
+                  status: status,
+                  isConnected: isConnected,
+                )
+              else
+                _buildWideHeader(
+                  status: status,
+                  isConnected: isConnected,
+                ),
 
-                    const Icon(
-                      Icons.settings_input_antenna_rounded,
-                      color: Color(0xFF134E39),
-                      size: 24,
-                    ),
+              // ----------------------------------------------------
+              // DIVIDER
+              // ----------------------------------------------------
 
-                    const SizedBox(width: 12),
-
-                    Expanded(
-                      child: Text(
-                        'ESP8266 Smart Plant Monitor',
-                        overflow: TextOverflow.ellipsis,
-                        style: GoogleFonts.poppins(
-                          fontSize: 15,
-                          fontWeight: FontWeight.bold,
-                          color: const Color(0xFF134E39),
-                        ),
-                      ),
-                    ),
-                  ],
+              const Padding(
+                padding: EdgeInsets.symmetric(vertical: 12.0),
+                child: Divider(
+                  color: Color(0xFFF4F7F5),
+                  height: 1,
                 ),
               ),
 
-              const SizedBox(width: 8),
-
               // ----------------------------------------------------
-              // Connection Status
+              // DEVICE DETAILS
               // ----------------------------------------------------
 
-              Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 10,
-                  vertical: 4,
-                ),
-                decoration: BoxDecoration(
-                  color: isConnected
-                      ? const Color(0xFFE4EDE6)
-                      : const Color(0xFFF5E4E4),
-                  borderRadius: BorderRadius.circular(20),
-                ),
-                child: Row(
-                  children: [
-
-                    Container(
-                      width: 8,
-                      height: 8,
-                      decoration: BoxDecoration(
-                        color: isConnected
-                            ? Colors.green
-                            : Colors.red,
-                        shape: BoxShape.circle,
-                      ),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(
+                    child: _StatusDetailItem(
+                      label: 'Connection',
+                      value: 'Wi-Fi',
                     ),
+                  ),
 
-                    const SizedBox(width: 6),
+                  const SizedBox(width: 8),
 
-                    Text(
-                      status,
-                      style: GoogleFonts.poppins(
-                        fontSize: 11,
-                        fontWeight: FontWeight.bold,
-                        color: isConnected
-                            ? const Color(0xFF134E39)
-                            : Colors.red.shade700,
-                      ),
+                  Expanded(
+                    child: _StatusDetailItem(
+                      label: 'Signal Strength',
+                      value: '$signalPercentage%',
                     ),
-                  ],
+                  ),
+
+                  const SizedBox(width: 8),
+
+                  Expanded(
+                    child: _StatusDetailItem(
+                      label: 'RSSI',
+                      value: rssiText,
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  // ==============================================================
+  // WIDE HEADER
+  // ==============================================================
+
+  Widget _buildWideHeader({
+    required String status,
+    required bool isConnected,
+  }) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.center,
+      children: [
+        const Icon(
+          Icons.settings_input_antenna_rounded,
+          color: Color(0xFF134E39),
+          size: 24,
+        ),
+
+        const SizedBox(width: 12),
+
+        Expanded(
+          child: Text(
+            'ESP8266 Smart Plant Monitor',
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            softWrap: false,
+            style: GoogleFonts.poppins(
+              fontSize: 15,
+              fontWeight: FontWeight.bold,
+              color: const Color(0xFF134E39),
+            ),
+          ),
+        ),
+
+        const SizedBox(width: 8),
+
+        _ConnectionBadge(
+          status: status,
+          isConnected: isConnected,
+        ),
+      ],
+    );
+  }
+
+  // ==============================================================
+  // NARROW HEADER
+  // ==============================================================
+
+  Widget _buildNarrowHeader({
+    required String status,
+    required bool isConnected,
+  }) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Icon(
+          Icons.settings_input_antenna_rounded,
+          color: Color(0xFF134E39),
+          size: 24,
+        ),
+
+        const SizedBox(width: 12),
+
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'ESP8266 Smart Plant Monitor',
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: GoogleFonts.poppins(
+                  fontSize: 15,
+                  fontWeight: FontWeight.bold,
+                  color: const Color(0xFF134E39),
                 ),
+              ),
+
+              const SizedBox(height: 8),
+
+              _ConnectionBadge(
+                status: status,
+                isConnected: isConnected,
               ),
             ],
           ),
+        ),
+      ],
+    );
+  }
+}
 
-          // --------------------------------------------------------
-          // Divider
-          // --------------------------------------------------------
+// ==================================================================
+// CONNECTION BADGE
+// ==================================================================
 
-          const Padding(
-            padding: EdgeInsets.symmetric(vertical: 12.0),
-            child: Divider(
-              color: Color(0xFFF4F7F5),
-              height: 1,
+class _ConnectionBadge extends StatelessWidget {
+  final String status;
+  final bool isConnected;
+
+  const _ConnectionBadge({
+    required this.status,
+    required this.isConnected,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      constraints: const BoxConstraints(
+        maxWidth: 130,
+      ),
+      padding: const EdgeInsets.symmetric(
+        horizontal: 10,
+        vertical: 4,
+      ),
+      decoration: BoxDecoration(
+        color: isConnected
+            ? const Color(0xFFE4EDE6)
+            : const Color(0xFFF5E4E4),
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 8,
+            height: 8,
+            decoration: BoxDecoration(
+              color: isConnected ? Colors.green : Colors.red,
+              shape: BoxShape.circle,
             ),
           ),
 
-          // --------------------------------------------------------
-          // Device Details
-          // --------------------------------------------------------
+          const SizedBox(width: 6),
 
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-
-              const _StatusDetailItem(
-                label: 'Connection',
-                value: 'Wi-Fi',
+          Flexible(
+            child: Text(
+              status,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              softWrap: false,
+              style: GoogleFonts.poppins(
+                fontSize: 11,
+                fontWeight: FontWeight.bold,
+                color: isConnected
+                    ? const Color(0xFF134E39)
+                    : Colors.red.shade700,
               ),
-
-              _StatusDetailItem(
-                label: 'Signal Strength',
-                value: '$signalPercentage%',
-              ),
-
-              _StatusDetailItem(
-                label: 'RSSI',
-                value: rssiText,
-              ),
-            ],
+            ),
           ),
         ],
       ),
@@ -268,9 +387,10 @@ class _StatusDetailItem extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-
         Text(
           label,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
           style: GoogleFonts.poppins(
             fontSize: 11,
             color: const Color(0xFF5A7865),
@@ -281,6 +401,8 @@ class _StatusDetailItem extends StatelessWidget {
 
         Text(
           value,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
           style: GoogleFonts.poppins(
             fontSize: 13,
             fontWeight: FontWeight.bold,
