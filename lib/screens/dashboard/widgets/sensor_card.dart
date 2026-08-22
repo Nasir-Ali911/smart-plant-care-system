@@ -1,104 +1,137 @@
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
+import 'package:smart_plant_care/constants/app_colors.dart';
 
 class SensorCard extends StatelessWidget {
   final String title;
   final String value;
   final IconData icon;
-  final String status;
+  final Color iconColor;
+  final String unit;
+  final String? status;
 
   const SensorCard({
     super.key,
     required this.title,
     required this.value,
     required this.icon,
-    required this.status,
+    this.iconColor = AppColors.primary,
+    this.unit = '',
+    this.status,
   });
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.all(16.0),
+      width: double.infinity,
+      padding: const EdgeInsets.all(15),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(
+          color: Colors.grey.shade200,
+        ),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.03),
-            blurRadius: 10,
-            offset: const Offset(0, 4),
+            color: Colors.black.withValues(alpha: 0.05),
+            blurRadius: 12,
+            offset: const Offset(0, 5),
           ),
         ],
       ),
-      child: Row(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // --------------------------------------------------------
-          // ICON
-          // --------------------------------------------------------
-          Container(
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: const Color(0xFFD0E2D4),
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Icon(
-              icon,
-              color: const Color(0xFF134E39),
-              size: 24,
+          Row(
+            children: [
+              Container(
+                width: 40,
+                height: 40,
+                decoration: BoxDecoration(
+                  color: iconColor.withValues(alpha: 0.10),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Icon(
+                  icon,
+                  color: iconColor,
+                  size: 21,
+                ),
+              ),
+
+              const Spacer(),
+
+              Icon(
+                Icons.more_horiz,
+                size: 19,
+                color: Colors.grey.shade400,
+              ),
+            ],
+          ),
+
+          const SizedBox(height: 10),
+
+          Text(
+            title,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w500,
+              color: Colors.grey.shade600,
             ),
           ),
-          const SizedBox(width: 16),
 
-          // --------------------------------------------------------
-          // TITLE & VALUE (EXPANDED TO PREVENT OVERFLOW)
-          // --------------------------------------------------------
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Text(
-                  title,
-                  style: GoogleFonts.poppins(
-                    fontSize: 13,
-                    fontWeight: FontWeight.w500,
-                    color: const Color(0xFF5A7865),
-                  ),
-                ),
-                const SizedBox(height: 2),
-                Text(
+          const SizedBox(height: 3),
+
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              Flexible(
+                child: Text(
                   value,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: GoogleFonts.poppins(
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold,
-                    color: const Color(0xFF134E39),
+                  style: const TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.w700,
+                    color: Colors.black87,
+                  ),
+                ),
+              ),
+
+              if (unit.isNotEmpty) ...[
+                const SizedBox(width: 4),
+
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 2),
+                  child: Text(
+                    unit,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: Colors.grey.shade600,
+                      fontWeight: FontWeight.w500,
+                    ),
                   ),
                 ),
               ],
-            ),
+            ],
           ),
-          const SizedBox(width: 12),
 
-          // --------------------------------------------------------
-          // STATUS BADGE
-          // --------------------------------------------------------
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-            decoration: BoxDecoration(
-              color: const Color(0xFFE4EDE6),
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: Text(
-              status,
-              style: GoogleFonts.poppins(
+          if (status != null && status!.isNotEmpty) ...[
+            const SizedBox(height: 2),
+
+            Text(
+              status!,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
                 fontSize: 11,
                 fontWeight: FontWeight.w600,
-                color: const Color(0xFF134E39),
+                color: iconColor,
               ),
             ),
-          ),
+          ],
         ],
       ),
     );

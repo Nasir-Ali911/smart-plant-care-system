@@ -1,94 +1,106 @@
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
+import 'package:smart_plant_care/constants/app_colors.dart';
 
 class SummaryCard extends StatelessWidget {
   final String title;
   final String value;
   final IconData icon;
+  final Color? iconColor;
+  final String? subtitle;
 
   const SummaryCard({
     super.key,
     required this.title,
     required this.value,
     required this.icon,
+    this.iconColor,
+    this.subtitle,
   });
 
   @override
   Widget build(BuildContext context) {
+    final Color color = iconColor ?? AppColors.primary;
+
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.all(16.0),
+      padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(
+          color: Colors.grey.shade200,
+        ),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.03),
-            blurRadius: 10,
-            offset: const Offset(0, 4),
+            color: Colors.black.withValues(alpha: 0.06),
+            blurRadius: 12,
+            offset: const Offset(0, 5),
           ),
         ],
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisAlignment: MainAxisAlignment.center,
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
         children: [
-          // --------------------------------------------------------
-          // ICON
-          // --------------------------------------------------------
-
           Container(
-            padding: const EdgeInsets.all(8),
+            width: 44,
+            height: 44,
             decoration: BoxDecoration(
-              color: const Color(0xFFD0E2D4),
-              borderRadius: BorderRadius.circular(10),
+              color: color.withValues(alpha: 0.10),
+              borderRadius: BorderRadius.circular(13),
             ),
             child: Icon(
               icon,
-              color: const Color(0xFF134E39),
-              size: 20,
+              color: color,
+              size: 23,
             ),
           ),
 
-          const SizedBox(height: 10),
+          const SizedBox(width: 10),
 
-          // --------------------------------------------------------
-          // VALUE
-          // --------------------------------------------------------
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w500,
+                    color: Colors.grey.shade600,
+                  ),
+                ),
 
-          SizedBox(
-            width: double.infinity,
-            child: Text(
-              value,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              softWrap: false,
-              style: GoogleFonts.poppins(
-                fontSize: 20,
-                fontWeight: FontWeight.bold,
-                color: const Color(0xFF134E39),
-              ),
-            ),
-          ),
+                const SizedBox(height: 4),
 
-          const SizedBox(height: 2),
+                Text(
+                  value,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w700,
+                    color: Colors.black87,
+                  ),
+                ),
 
-          // --------------------------------------------------------
-          // TITLE
-          // --------------------------------------------------------
+                if (subtitle != null && subtitle!.isNotEmpty) ...[
+                  const SizedBox(height: 2),
 
-          SizedBox(
-            width: double.infinity,
-            child: Text(
-              title,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              softWrap: false,
-              style: GoogleFonts.poppins(
-                fontSize: 12,
-                fontWeight: FontWeight.w500,
-                color: const Color(0xFF5A7865),
-              ),
+                  Text(
+                    subtitle!,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 10,
+                      fontWeight: FontWeight.w600,
+                      color: color,
+                    ),
+                  ),
+                ],
+              ],
             ),
           ),
         ],
