@@ -387,13 +387,16 @@ class _StatusDetailItem extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(
-          label,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          style: GoogleFonts.poppins(
-            fontSize: 11,
-            color: const Color(0xFF5A7865),
+        FittedBox(
+          fit: BoxFit.scaleDown,
+          alignment: Alignment.centerLeft,
+          child: Text(
+            label,
+            maxLines: 1,
+            style: GoogleFonts.poppins(
+              fontSize: 11,
+              color: const Color(0xFF5A7865),
+            ),
           ),
         ),
 

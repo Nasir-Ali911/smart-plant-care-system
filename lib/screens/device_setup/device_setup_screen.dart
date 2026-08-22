@@ -3,7 +3,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:smart_plant_care/screens/device_setup/widgets/device_card.dart';
 import 'package:smart_plant_care/screens/device_setup/widgets/setup_step_card.dart';
 import 'package:smart_plant_care/screens/device_setup/widgets/sensor_preview_card.dart';
-import 'package:smart_plant_care/screens/device_setup/widgets/action_button.dart';
+import 'package0/screens/device_setup/widgets/action_button.dart';
 import 'package:smart_plant_care/screens/live_monitoring/live_monitoring_screen.dart';
 
 class DeviceSetupScreen extends StatefulWidget {
@@ -50,11 +50,12 @@ class _DeviceSetupScreenState extends State<DeviceSetupScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final bottomSafeArea = MediaQuery.of(context).padding.bottom;
+    final bottomPadding = MediaQuery.of(context).padding.bottom;
+    final keyboardHeight = MediaQuery.of(context).viewInsets.bottom;
 
     return Scaffold(
       backgroundColor: const Color(0xFFF4F7F5),
-
+      resizeToAvoidBottomInset: true, // Allows smooth scrolling when keyboard pops up
       appBar: AppBar(
         backgroundColor: Colors.white,
         elevation: 0,
@@ -74,24 +75,20 @@ class _DeviceSetupScreenState extends State<DeviceSetupScreen> {
           ),
         ),
       ),
-
       body: SafeArea(
-        bottom: false,
         child: SingleChildScrollView(
-          keyboardDismissBehavior:
-              ScrollViewKeyboardDismissBehavior.onDrag,
+          physics: const BouncingScrollPhysics(),
+          keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
           padding: EdgeInsets.fromLTRB(
             16,
             16,
             16,
-            32 + bottomSafeArea,
+            24 + bottomPadding + keyboardHeight, // Dynamically accounts for keyboard & safe area
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // ----------------------------------------------------------
               // Welcome Card
-              // ----------------------------------------------------------
               Container(
                 padding: const EdgeInsets.all(20),
                 decoration: BoxDecoration(
@@ -107,7 +104,6 @@ class _DeviceSetupScreenState extends State<DeviceSetupScreen> {
                       color: Color(0xFF134E39),
                     ),
                     const SizedBox(width: 16),
-
                     Expanded(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
@@ -137,16 +133,12 @@ class _DeviceSetupScreenState extends State<DeviceSetupScreen> {
 
               const SizedBox(height: 20),
 
-              // ----------------------------------------------------------
               // Connection Status Card
-              // ----------------------------------------------------------
               const DeviceCard(),
 
               const SizedBox(height: 20),
 
-              // ----------------------------------------------------------
               // Setup Steps
-              // ----------------------------------------------------------
               Text(
                 'Setup Steps',
                 style: GoogleFonts.poppins(
@@ -162,22 +154,18 @@ class _DeviceSetupScreenState extends State<DeviceSetupScreen> {
                 stepNumber: '1',
                 title: 'Power on ESP32 device',
               ),
-
               const SetupStepCard(
                 stepNumber: '2',
                 title: 'Connect phone to ESP32 Wi-Fi hotspot',
               ),
-
               const SetupStepCard(
                 stepNumber: '3',
                 title: 'Enter Home Wi-Fi credentials below',
               ),
-
               const SetupStepCard(
                 stepNumber: '4',
                 title: 'Establish secure local connection',
               ),
-
               const SetupStepCard(
                 stepNumber: '5',
                 title: 'Finish setup and view telemetry',
@@ -185,9 +173,7 @@ class _DeviceSetupScreenState extends State<DeviceSetupScreen> {
 
               const SizedBox(height: 24),
 
-              // ----------------------------------------------------------
               // Wi-Fi Configuration
-              // ----------------------------------------------------------
               Text(
                 'Wi-Fi Configuration',
                 style: GoogleFonts.poppins(
@@ -253,9 +239,7 @@ class _DeviceSetupScreenState extends State<DeviceSetupScreen> {
 
               const SizedBox(height: 24),
 
-              // ----------------------------------------------------------
-              // Sensor Preview
-              // ----------------------------------------------------------
+              // Sensor Preview Header
               Row(
                 crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
@@ -269,14 +253,12 @@ class _DeviceSetupScreenState extends State<DeviceSetupScreen> {
                       ),
                     ),
                   ),
-
                   const SizedBox(width: 12),
-
                   Flexible(
                     child: Text(
                       'Waiting for device...',
                       textAlign: TextAlign.right,
-                      maxLines: 2,
+                      maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: GoogleFonts.poppins(
                         fontSize: 11,
@@ -290,16 +272,14 @@ class _DeviceSetupScreenState extends State<DeviceSetupScreen> {
 
               const SizedBox(height: 12),
 
-              // ----------------------------------------------------------
-              // Sensor Grid
-              // ----------------------------------------------------------
+              // Sensor Grid (Adjusted Aspect Ratio to Prevent Overflow)
               GridView.count(
                 crossAxisCount: 2,
                 crossAxisSpacing: 12,
                 mainAxisSpacing: 12,
                 shrinkWrap: true,
                 physics: const NeverScrollableScrollPhysics(),
-                childAspectRatio: 1.6,
+                childAspectRatio: 1.35, // Relaxed aspect ratio to prevent card vertical overflow
                 children: const [
                   SensorPreviewCard(
                     title: 'Temperature',
@@ -324,11 +304,9 @@ class _DeviceSetupScreenState extends State<DeviceSetupScreen> {
                 ],
               ),
 
-              const SizedBox(height: 30),
+              const SizedBox(height: 28),
 
-              // ----------------------------------------------------------
-              // Connect Button
-              // ----------------------------------------------------------
+              // Action Buttons
               ActionButton(
                 label: 'Connect Device',
                 onPressed: _handleConnect,
@@ -338,17 +316,11 @@ class _DeviceSetupScreenState extends State<DeviceSetupScreen> {
 
               const SizedBox(height: 12),
 
-              // ----------------------------------------------------------
-              // Scan Again Button
-              // ----------------------------------------------------------
               ActionButton(
                 label: 'Scan Again',
                 onPressed: () {},
                 isPrimary: false,
               ),
-
-              // Extra bottom breathing room
-              const SizedBox(height: 16),
             ],
           ),
         ),
