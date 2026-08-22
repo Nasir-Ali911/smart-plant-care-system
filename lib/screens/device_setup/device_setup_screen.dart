@@ -51,6 +51,12 @@ class _DeviceSetupScreenState extends State<DeviceSetupScreen> {
     );
   }
 
+  void _handleScanAgain() {
+    if (_isLoading) return;
+
+    // Scan functionality can be added here later.
+  }
+
   @override
   Widget build(BuildContext context) {
     final bottomSafeArea = MediaQuery.of(context).padding.bottom;
@@ -94,7 +100,6 @@ class _DeviceSetupScreenState extends State<DeviceSetupScreen> {
         bottom: false,
         child: SingleChildScrollView(
           physics: const BouncingScrollPhysics(),
-
           keyboardDismissBehavior:
               ScrollViewKeyboardDismissBehavior.onDrag,
 
@@ -133,7 +138,8 @@ class _DeviceSetupScreenState extends State<DeviceSetupScreen> {
 
                     Expanded(
                       child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
+                        crossAxisAlignment:
+                            CrossAxisAlignment.start,
                         children: [
                           Text(
                             'Connect your Smart Plant Device',
@@ -394,12 +400,10 @@ class _DeviceSetupScreenState extends State<DeviceSetupScreen> {
                 crossAxisCount: 2,
                 crossAxisSpacing: 12,
                 mainAxisSpacing: 12,
-
                 shrinkWrap: true,
-
                 physics: const NeverScrollableScrollPhysics(),
 
-                // Gives the cards more reliable vertical space.
+                // More vertical room for sensor card content.
                 childAspectRatio: 1.45,
 
                 children: const [
@@ -453,18 +457,11 @@ class _DeviceSetupScreenState extends State<DeviceSetupScreen> {
                 width: double.infinity,
                 child: ActionButton(
                   label: 'Scan Again',
-                  onPressed: _isLoading
-                      ? null
-                      : () {
-                          // Scan functionality can be added here later.
-                        },
+                  onPressed: _handleScanAgain,
                   isPrimary: false,
                 ),
               ),
 
-              // ==========================================================
-              // EXTRA BOTTOM SPACE
-              // ==========================================================
               const SizedBox(height: 16),
             ],
           ),
