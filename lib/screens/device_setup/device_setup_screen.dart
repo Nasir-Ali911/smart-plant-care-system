@@ -3,7 +3,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:smart_plant_care/screens/device_setup/widgets/device_card.dart';
 import 'package:smart_plant_care/screens/device_setup/widgets/setup_step_card.dart';
 import 'package:smart_plant_care/screens/device_setup/widgets/sensor_preview_card.dart';
-import 'package0/screens/device_setup/widgets/action_button.dart';
+import 'package:smart_plant_care/screens/device_setup/widgets/action_button.dart';
 import 'package:smart_plant_care/screens/live_monitoring/live_monitoring_screen.dart';
 
 class DeviceSetupScreen extends StatefulWidget {
