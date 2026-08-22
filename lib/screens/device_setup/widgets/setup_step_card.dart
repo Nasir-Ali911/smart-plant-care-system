@@ -14,14 +14,21 @@ class SetupStepCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
+      width: double.infinity,
       margin: const EdgeInsets.only(bottom: 12),
-      padding: const EdgeInsets.all(16.0),
+      padding: const EdgeInsets.symmetric(
+        horizontal: 16,
+        vertical: 14,
+      ),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: const Color(0xFFD0E2D4)),
+        border: Border.all(
+          color: const Color(0xFFD0E2D4),
+        ),
       ),
       child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
         children: [
           Container(
             width: 32,
@@ -40,10 +47,15 @@ class SetupStepCard extends StatelessWidget {
               ),
             ),
           ),
-          const SizedBox(width: 16),
+
+          const SizedBox(width: 14),
+
           Expanded(
             child: Text(
               title,
+              softWrap: true,
+              maxLines: 3,
+              overflow: TextOverflow.ellipsis,
               style: GoogleFonts.poppins(
                 fontSize: 14,
                 fontWeight: FontWeight.w500,

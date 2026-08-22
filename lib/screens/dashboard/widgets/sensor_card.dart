@@ -23,7 +23,10 @@ class SensorCard extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.all(15),
+      constraints: const BoxConstraints(
+        minHeight: 150,
+      ),
+      padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(18),
@@ -71,7 +74,7 @@ class SensorCard extends StatelessWidget {
 
           Text(
             title,
-            maxLines: 1,
+            maxLines: 2,
             overflow: TextOverflow.ellipsis,
             style: TextStyle(
               fontSize: 12,
@@ -80,7 +83,7 @@ class SensorCard extends StatelessWidget {
             ),
           ),
 
-          const SizedBox(height: 3),
+          const SizedBox(height: 4),
 
           Row(
             crossAxisAlignment: CrossAxisAlignment.end,
@@ -101,16 +104,18 @@ class SensorCard extends StatelessWidget {
               if (unit.isNotEmpty) ...[
                 const SizedBox(width: 4),
 
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 2),
-                  child: Text(
-                    unit,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      fontSize: 11,
-                      color: Colors.grey.shade600,
-                      fontWeight: FontWeight.w500,
+                Flexible(
+                  child: Padding(
+                    padding: const EdgeInsets.only(bottom: 2),
+                    child: Text(
+                      unit,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: Colors.grey.shade600,
+                        fontWeight: FontWeight.w500,
+                      ),
                     ),
                   ),
                 ),
@@ -119,11 +124,11 @@ class SensorCard extends StatelessWidget {
           ),
 
           if (status != null && status!.isNotEmpty) ...[
-            const SizedBox(height: 2),
+            const SizedBox(height: 4),
 
             Text(
               status!,
-              maxLines: 1,
+              maxLines: 2,
               overflow: TextOverflow.ellipsis,
               style: TextStyle(
                 fontSize: 11,
