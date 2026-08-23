@@ -30,7 +30,7 @@ class DeviceCard extends StatelessWidget {
               Expanded(
                 flex: 3,
                 child: Text(
-                  'esp8622 Smart Plant Monitor',
+                  'ESP8266 Smart Plant Monitor',
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
                   style: GoogleFonts.poppins(

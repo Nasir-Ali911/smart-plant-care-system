@@ -30,7 +30,7 @@ class _DeviceSetupScreenState extends State<DeviceSetupScreen>
   bool _isScanning = false;
   bool _isConnected = false;
   String _connectionStatus = 'Not Connected';
-  String _selectedDevice = 'esp8622-SmartPlant-01';
+  String _selectedDevice = 'ESP8266-SmartPlant-01';
 
   @override
   void initState() {
@@ -304,7 +304,7 @@ class _DeviceSetupScreenState extends State<DeviceSetupScreen>
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  'Follow the steps below to connect your esp8622-based monitoring system.',
+                  'Follow the steps below to connect your ESP8266-based monitoring system.',
                   style: GoogleFonts.poppins(
                     fontSize: isSmallScreen ? 11 : 13,
                     color: const Color(0xFF5A7865),
@@ -427,12 +427,12 @@ class _DeviceSetupScreenState extends State<DeviceSetupScreen>
         const SizedBox(height: 12),
         SetupStepCard(
           stepNumber: '1',
-          title: 'Power on esp8622 device',
+          title: 'Power on ESP8266 device',
           isCompleted: _isConnected,
         ),
         SetupStepCard(
           stepNumber: '2',
-          title: 'Connect phone to esp8622 Wi-Fi hotspot',
+          title: 'Connect phone to ESP8266 Wi-Fi hotspot',
           isCompleted: _isConnected,
         ),
         SetupStepCard(
@@ -717,11 +717,11 @@ class _DeviceSetupScreenState extends State<DeviceSetupScreen>
             children: [
               _buildHelpItem(
                 icon: Icons.power,
-                text: 'Ensure your esp8622 device is powered on and nearby',
+                text: 'Ensure your ESP8266 device is powered on and nearby',
               ),
               _buildHelpItem(
                 icon: Icons.wifi,
-                text: 'Connect to the esp8622 Wi-Fi hotspot (usually named "esp8622-SmartPlant")',
+                text: 'Connect to the ESP8266 Wi-Fi hotspot (usually named "ESP8266-SmartPlant")',
               ),
               _buildHelpItem(
                 icon: Icons.router,

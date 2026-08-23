@@ -102,7 +102,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
         return;
       }
 
-      // Try Firestore user profile first
+      // Try Firestore user profile first.
       try {
         final DocumentSnapshot<Map<String, dynamic>> snapshot =
             await _firestore.collection('users').doc(user.uid).get();
@@ -125,7 +125,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
         debugPrint('Firestore profile lookup failed: $e');
       }
 
-      // Firebase Auth fallback
+      // Firebase Auth fallback.
       final String displayName = user.displayName?.trim() ?? '';
 
       if (displayName.isNotEmpty) {
@@ -138,7 +138,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
         return;
       }
 
-      // Email fallback
+      // Email fallback.
       if (mounted) {
         setState(() {
           _userName = _formatName(
@@ -424,13 +424,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
     return StreamBuilder<DatabaseEvent>(
       stream: _smartPlantRef.onValue,
       builder: (context, sensorSnapshot) {
-        // Loading state
+        // Loading state.
         if (sensorSnapshot.connectionState ==
             ConnectionState.waiting) {
           return _buildLoadingScreen();
         }
 
-        // Error state
+        // Error state.
         if (sensorSnapshot.hasError) {
           return _buildErrorScreen(
             sensorSnapshot.error.toString(),
@@ -600,8 +600,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
               },
               child: KeyedSubtree(
                 key: ValueKey(_currentIndex),
-                child:
-                    screens[_currentIndex],
+                child: screens[_currentIndex],
               ),
             ),
           ),
@@ -668,7 +667,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   ),
                   label: 'Home',
                 ),
-
                 BottomNavigationBarItem(
                   icon: Icon(
                     Icons.eco_outlined,
@@ -678,7 +676,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   ),
                   label: 'Plants',
                 ),
-
                 BottomNavigationBarItem(
                   icon: Icon(
                     Icons.notifications_outlined,
@@ -688,7 +685,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   ),
                   label: 'Notifications',
                 ),
-
                 BottomNavigationBarItem(
                   icon: Icon(
                     Icons.person_outline,
@@ -723,9 +719,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
               color: Color(0xFF134E39),
               strokeWidth: 3,
             ),
-
             const SizedBox(height: 20),
-
             Text(
               'Loading your dashboard...',
               style: GoogleFonts.poppins(
@@ -750,28 +744,23 @@ class _DashboardScreenState extends State<DashboardScreen> {
     return Scaffold(
       backgroundColor:
           const Color(0xFFE4EDE6),
-
       body: Center(
         child: Padding(
           padding:
               const EdgeInsets.all(24),
-
           child: Column(
             mainAxisAlignment:
                 MainAxisAlignment.center,
-
             children: [
               Container(
                 width: 80,
                 height: 80,
-
                 decoration:
                     BoxDecoration(
                   shape: BoxShape.circle,
                   color: Colors.red
                       .withOpacity(0.1),
                 ),
-
                 child: const Icon(
                   Icons.error_outline,
                   size: 40,
@@ -813,7 +802,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 onPressed: () {
                   setState(() {});
                 },
-
                 style:
                     ElevatedButton.styleFrom(
                   backgroundColor:
@@ -836,7 +824,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
                     ),
                   ),
                 ),
-
                 child: Text(
                   'Retry',
                   style:
@@ -1020,7 +1007,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
                 RecentActivityCard(
                   title:
-                      'ESP8622 Device connected',
+                      'ESP8266 Device connected',
                   time:
                       '5 hours ago',
                   icon:
@@ -1057,16 +1044,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
           return Column(
             crossAxisAlignment:
                 CrossAxisAlignment.start,
-
             children: [
               Row(
                 mainAxisAlignment:
                     MainAxisAlignment.end,
                 children: [
                   _buildNotificationButton(),
-
                   const SizedBox(width: 8),
-
                   _buildProfileAvatar(),
                 ],
               ),
@@ -1125,13 +1109,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
         return Row(
           crossAxisAlignment:
               CrossAxisAlignment.start,
-
           children: [
             Expanded(
               child: Column(
                 crossAxisAlignment:
                     CrossAxisAlignment.start,
-
                 children: [
                   Text(
                     '$greeting,',
@@ -1223,14 +1205,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
           ),
         ],
       ),
-
       child: IconButton(
         icon: const Icon(
           Icons.notifications_outlined,
           color:
               Color(0xFF134E39),
         ),
-
         onPressed: () {
           Navigator.push(
             context,
@@ -1251,11 +1231,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
   Widget _buildProfileAvatar() {
     return GestureDetector(
       onTap: _openProfile,
-
       child: Container(
         width: 48,
         height: 48,
-
         decoration: BoxDecoration(
           shape: BoxShape.circle,
           color:
@@ -1267,7 +1245,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
             width: 2,
           ),
         ),
-
         child: const Center(
           child: Icon(
             Icons.person,
@@ -1291,7 +1268,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
   ) {
     return StreamBuilder<DatabaseEvent>(
       stream: _plantsRef.onValue,
-
       builder:
           (context, plantSnapshot) {
         int totalPlants = 0;
@@ -1408,20 +1384,15 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
         SensorCard(
           title: 'Temperature',
-
           value: temperature != null
               ? '${temperature.toStringAsFixed(1)}°C'
               : '--',
-
           icon: Icons.thermostat,
-
           iconColor: Colors.orange,
-
           status: temperatureStatus,
 
-          // FIXED:
-          // showLoading -> isLoading
-          isLoading: temperature == null,
+          isLoading:
+              temperature == null,
 
           isActive:
               temperature != null,
@@ -1435,23 +1406,17 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
         SensorCard(
           title: 'Soil Status',
-
           value:
               sensorDataAvailable
                   ? soil.status
                   : '--',
-
           icon: Icons.grass,
-
           iconColor: _soilColor(),
-
           status:
               sensorDataAvailable
                   ? soil.message
                   : 'Waiting',
 
-          // FIXED:
-          // showLoading -> isLoading
           isLoading:
               !sensorDataAvailable,
 
@@ -1467,20 +1432,15 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
         SensorCard(
           title: 'Humidity',
-
           value: humidity != null
               ? '${humidity.toStringAsFixed(1)}%'
               : '--',
-
           icon: Icons.air,
-
           iconColor: Colors.blue,
-
           status: humidityStatus,
 
-          // FIXED:
-          // showLoading -> isLoading
-          isLoading: humidity == null,
+          isLoading:
+              humidity == null,
 
           isActive:
               humidity != null,
@@ -1494,22 +1454,17 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
         SensorCard(
           title: 'Light Intensity',
-
-          value: lightIntensity != null
-              ? lightIntensity.toStringAsFixed(0)
-              : '--',
-
+          value:
+              lightIntensity != null
+                  ? lightIntensity
+                      .toStringAsFixed(0)
+                  : '--',
           unit: 'lux',
-
           icon:
               Icons.wb_sunny_outlined,
-
           iconColor: Colors.amber,
-
           status: lightStatus,
 
-          // FIXED:
-          // showLoading -> isLoading
           isLoading:
               lightIntensity == null,
 
@@ -1525,14 +1480,22 @@ class _DashboardScreenState extends State<DashboardScreen> {
   // ============================================================
 
   Widget _buildQuickActions() {
-    return Row(
+    return Column(
       children: [
-        Expanded(
+        // ========================================================
+        // ADD PLANT
+        // ========================================================
+
+        SizedBox(
+          width: double.infinity,
           child: QuickActionCard(
             title: 'Add Plant',
+            subtitle:
+                'Add and manage a new plant',
             icon:
                 Icons.add_circle_outline,
-
+            iconColor:
+                const Color(0xFF134E39),
             onTap: () {
               Navigator.push(
                 context,
@@ -1545,14 +1508,22 @@ class _DashboardScreenState extends State<DashboardScreen> {
           ),
         ),
 
-        const SizedBox(width: 12),
+        const SizedBox(height: 12),
 
-        Expanded(
+        // ========================================================
+        // DEVICE SETUP
+        // ========================================================
+
+        SizedBox(
+          width: double.infinity,
           child: QuickActionCard(
             title: 'Device Setup',
-            icon: Icons
-                .settings_input_antenna_rounded,
-
+            subtitle:
+                'Configure your smart plant device',
+            icon:
+                Icons.settings_input_antenna_rounded,
+            iconColor:
+                const Color(0xFF134E39),
             onTap: () {
               Navigator.push(
                 context,

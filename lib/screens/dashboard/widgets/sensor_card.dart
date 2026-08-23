@@ -51,6 +51,7 @@ class SensorCard extends StatelessWidget {
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 300),
           curve: Curves.easeInOut,
+          alignment: Alignment.topLeft, // Locks content to the top
           padding: EdgeInsets.all(
             isSmallScreen ? 12 : 16,
           ),
@@ -92,7 +93,7 @@ class SensorCard extends StatelessWidget {
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisSize: MainAxisSize.min,
+            mainAxisSize: MainAxisSize.min, // Prevents column from expanding unnecessarily
             children: [
               // --------------------------------------------------
               // HEADER
@@ -182,7 +183,7 @@ class SensorCard extends StatelessWidget {
               ),
 
               SizedBox(
-                height: isSmallScreen ? 12 : 16,
+                height: isSmallScreen ? 10 : 12, // Slightly reduced spacing
               ),
 
               // --------------------------------------------------
@@ -211,18 +212,21 @@ class SensorCard extends StatelessWidget {
                       CrossAxisAlignment.end,
                   children: [
                     Flexible(
-                      child: Text(
-                        isLoading ? '---' : value,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: GoogleFonts.poppins(
-                          fontSize:
-                              isSmallScreen ? 18 : 22,
-                          fontWeight: FontWeight.w700,
-                          color: isActive
-                              ? Colors.black87
-                              : Colors.grey.shade500,
-                          letterSpacing: 0.2,
+                      child: FittedBox( // Safe guard for long texts
+                        fit: BoxFit.scaleDown,
+                        alignment: Alignment.centerLeft,
+                        child: Text(
+                          isLoading ? '---' : value,
+                          maxLines: 1,
+                          style: GoogleFonts.poppins(
+                            fontSize:
+                                isSmallScreen ? 18 : 22,
+                            fontWeight: FontWeight.w700,
+                            color: isActive
+                                ? Colors.black87
+                                : Colors.grey.shade500,
+                            letterSpacing: 0.2,
+                          ),
                         ),
                       ),
                     ),
@@ -255,11 +259,15 @@ class SensorCard extends StatelessWidget {
               // --------------------------------------------------
               if (status != null &&
                   status!.isNotEmpty) ...[
-                const SizedBox(height: 8),
-                _buildStatusChip(
-                  status!,
-                  effectiveStatusColor,
-                  isSmallScreen,
+                const SizedBox(height: 6), // Slightly reduced spacing
+                FittedBox( // Ensures the chip fits horizontally
+                  fit: BoxFit.scaleDown,
+                  alignment: Alignment.centerLeft,
+                  child: _buildStatusChip(
+                    status!,
+                    effectiveStatusColor,
+                    isSmallScreen,
+                  ),
                 ),
               ],
 
@@ -268,7 +276,7 @@ class SensorCard extends StatelessWidget {
               // --------------------------------------------------
               if (isLoading &&
                   progressValue != null) ...[
-                const SizedBox(height: 12),
+                const SizedBox(height: 10),
                 ClipRRect(
                   borderRadius:
                       BorderRadius.circular(4),
@@ -346,17 +354,14 @@ class SensorCard extends StatelessWidget {
             color: color,
           ),
           const SizedBox(width: 4),
-          Flexible(
-            child: Text(
-              status,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: GoogleFonts.poppins(
-                fontSize: isSmallScreen ? 9 : 11,
-                fontWeight: FontWeight.w600,
-                color: color,
-                letterSpacing: 0.3,
-              ),
+          Text(
+            status,
+            maxLines: 1,
+            style: GoogleFonts.poppins(
+              fontSize: isSmallScreen ? 9 : 11,
+              fontWeight: FontWeight.w600,
+              color: color,
+              letterSpacing: 0.3,
             ),
           ),
         ],
@@ -444,6 +449,7 @@ class GaugeSensorCard extends StatelessWidget {
         onTap: onTap,
         borderRadius: BorderRadius.circular(18),
         child: Container(
+          alignment: Alignment.topLeft, // Uniform layout protection
           padding: const EdgeInsets.all(16),
           decoration: BoxDecoration(
             color: Colors.white,
@@ -463,6 +469,7 @@ class GaugeSensorCard extends StatelessWidget {
           child: Column(
             crossAxisAlignment:
                 CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
             children: [
               Row(
                 children: [
@@ -574,6 +581,7 @@ class CompactSensorCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
+      alignment: Alignment.centerLeft, // Uniform layout protection
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
         color: Colors.white,
@@ -606,6 +614,7 @@ class CompactSensorCard extends StatelessWidget {
             child: Column(
               crossAxisAlignment:
                   CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
               children: [
                 Text(
                   title,
