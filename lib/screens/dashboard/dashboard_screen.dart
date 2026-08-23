@@ -1284,79 +1284,84 @@ class _DashboardScreenState extends State<DashboardScreen> {
           }
         }
 
-        return GridView.count(
-          crossAxisCount:
-              MediaQuery.of(context)
-                          .size
-                          .width >
-                      600
-                  ? 4
-                  : 2,
+        // Use an explicit card height instead of childAspectRatio.
+        //
+        // The Soil Monitoring card contains both "Needs Water"
+        // and the "DRY" subtitle. The old aspect ratio made the
+        // card too short, causing the DRY text to extend outside
+        // the card and overlap the Environment Monitoring section.
+        return LayoutBuilder(
+          builder: (context, constraints) {
+            final double cardHeight =
+                constraints.maxWidth < 360 ? 225 : 215;
 
-          crossAxisSpacing: 12,
+            return GridView.builder(
+              shrinkWrap: true,
+              physics:
+                  const NeverScrollableScrollPhysics(),
 
-          mainAxisSpacing: 12,
+              gridDelegate:
+                  SliverGridDelegateWithFixedCrossAxisCount(
+                crossAxisCount:
+                    constraints.maxWidth > 600 ? 4 : 2,
+                crossAxisSpacing: 12,
+                mainAxisSpacing: 12,
+                mainAxisExtent: cardHeight,
+              ),
 
-          shrinkWrap: true,
+              itemCount: 4,
 
-          physics:
-              const NeverScrollableScrollPhysics(),
+              itemBuilder: (context, index) {
+                switch (index) {
+                  case 0:
+                    return SummaryCard(
+                      title: 'Total Plants',
+                      value: totalPlants.toString(),
+                      icon: Icons.eco_outlined,
+                      iconColor: Colors.green,
+                    );
 
-          childAspectRatio: 1.55,
+                  case 1:
+                    return SummaryCard(
+                      title: 'Sensor Readings',
+                      value:
+                          sensorDataAvailable ? '4' : '0',
+                      icon: Icons.sensors_outlined,
+                      iconColor: Colors.blue,
+                    );
 
-          children: [
-            SummaryCard(
-              title: 'Total Plants',
-              value:
-                  totalPlants.toString(),
-              icon:
-                  Icons.eco_outlined,
-              iconColor:
-                  Colors.green,
-            ),
+                  case 2:
+                    return SummaryCard(
+                      title: 'Soil Monitoring',
+                      value:
+                          soil.status == 'Waiting'
+                              ? 'Waiting'
+                              : soil.message,
+                      subtitle:
+                          soil.status == 'Waiting'
+                              ? null
+                              : soil.status,
+                      icon: Icons.water_drop_outlined,
+                      iconColor: _soilColor(),
+                    );
 
-            SummaryCard(
-              title: 'Sensor Readings',
-              value:
-                  sensorDataAvailable
-                      ? '4'
-                      : '0',
-              icon:
-                  Icons.sensors_outlined,
-              iconColor:
-                  Colors.blue,
-            ),
-
-            SummaryCard(
-              title: 'Soil Monitoring',
-              value:
-                  soil.status == 'Waiting'
-                      ? 'Waiting'
-                      : soil.message,
-              subtitle:
-                  soil.status == 'Waiting'
-                      ? null
-                      : soil.status,
-              icon:
-                  Icons.water_drop_outlined,
-              iconColor:
-                  _soilColor(),
-            ),
-
-            SummaryCard(
-              title: 'Device',
-              value:
-                  deviceConnected
-                      ? 'Connected'
-                      : 'Offline',
-              icon:
-                  Icons.devices_outlined,
-              iconColor:
-                  deviceConnected
-                      ? Colors.green
-                      : Colors.grey,
-            ),
-          ],
+                  default:
+                    return SummaryCard(
+                      title: 'Device',
+                      value:
+                          deviceConnected
+                              ? 'Connected'
+                              : 'Offline',
+                      icon: Icons.devices_outlined,
+                      iconColor:
+                          deviceConnected
+                              ? Colors.green
+                              : Colors.grey,
+                    );
+                }
+              },
+            );
+          },
         );
       },
     );
