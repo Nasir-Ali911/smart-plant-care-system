@@ -5,16 +5,24 @@ class SensorPreviewCard extends StatelessWidget {
   final String title;
   final String value;
   final IconData icon;
+  final bool isActive;
 
   const SensorPreviewCard({
     super.key,
     required this.title,
     required this.value,
     required this.icon,
+    this.isActive = false,
   });
 
   @override
   Widget build(BuildContext context) {
+    final Color primaryColor =
+        isActive ? const Color(0xFF134E39) : Colors.grey;
+
+    final Color secondaryColor =
+        isActive ? const Color(0xFF5A7865) : Colors.grey.shade500;
+
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(14),
@@ -22,7 +30,9 @@ class SensorPreviewCard extends StatelessWidget {
         color: Colors.white,
         borderRadius: BorderRadius.circular(14),
         border: Border.all(
-          color: const Color(0xFFD0E2D4),
+          color: isActive
+              ? const Color(0xFFD0E2D4)
+              : Colors.grey.shade300,
         ),
       ),
       child: Column(
@@ -34,7 +44,7 @@ class SensorPreviewCard extends StatelessWidget {
             children: [
               Icon(
                 icon,
-                color: const Color(0xFF134E39),
+                color: primaryColor,
                 size: 20,
               ),
 
@@ -48,8 +58,21 @@ class SensorPreviewCard extends StatelessWidget {
                   style: GoogleFonts.poppins(
                     fontSize: 12,
                     fontWeight: FontWeight.w500,
-                    color: const Color(0xFF5A7865),
+                    color: secondaryColor,
                   ),
+                ),
+              ),
+
+              const SizedBox(width: 6),
+
+              Container(
+                width: 8,
+                height: 8,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: isActive
+                      ? const Color(0xFF2E7D32)
+                      : Colors.grey,
                 ),
               ),
             ],
@@ -64,7 +87,7 @@ class SensorPreviewCard extends StatelessWidget {
             style: GoogleFonts.poppins(
               fontSize: 16,
               fontWeight: FontWeight.bold,
-              color: const Color(0xFF134E39),
+              color: primaryColor,
             ),
           ),
         ],

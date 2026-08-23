@@ -23,35 +23,29 @@ class DeviceCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // =====================================================
           // DEVICE NAME + CONNECTION STATUS
-          // =====================================================
-
           Row(
             crossAxisAlignment: CrossAxisAlignment.center,
             children: [
-              // Device name gets the available space.
               Expanded(
+                flex: 3,
                 child: Text(
-                  'ESP32 Smart Plant Monitor',
+                  'esp8622 Smart Plant Monitor',
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
                   style: GoogleFonts.poppins(
-                    fontSize: 16,
+                    fontSize: 14,
                     fontWeight: FontWeight.bold,
                     color: const Color(0xFF134E39),
                   ),
                 ),
               ),
-
               const SizedBox(width: 8),
-
-              // Status badge is kept within the available width.
-              Flexible(
+              UnconstrainedBox(
                 child: Container(
                   padding: const EdgeInsets.symmetric(
                     horizontal: 10,
-                    vertical: 4,
+                    vertical: 5,
                   ),
                   decoration: BoxDecoration(
                     color: Colors.red.withValues(alpha: 0.10),
@@ -60,10 +54,9 @@ class DeviceCard extends StatelessWidget {
                   child: Text(
                     'Not Connected',
                     maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    textAlign: TextAlign.center,
+                    softWrap: false,
                     style: GoogleFonts.poppins(
-                      fontSize: 12,
+                      fontSize: 11,
                       fontWeight: FontWeight.w600,
                       color: Colors.red,
                     ),
@@ -82,10 +75,7 @@ class DeviceCard extends StatelessWidget {
 
           const SizedBox(height: 16),
 
-          // =====================================================
           // DEVICE INFORMATION
-          // =====================================================
-
           Row(
             children: [
               Expanded(
@@ -94,18 +84,14 @@ class DeviceCard extends StatelessWidget {
                   'Wi-Fi',
                 ),
               ),
-
               const SizedBox(width: 8),
-
               Expanded(
                 child: _buildInfoColumn(
                   'Signal',
                   '--%',
                 ),
               ),
-
               const SizedBox(width: 8),
-
               Expanded(
                 child: _buildInfoColumn(
                   'Battery',
@@ -119,10 +105,6 @@ class DeviceCard extends StatelessWidget {
     );
   }
 
-  // ===========================================================
-  // INFO COLUMN
-  // ===========================================================
-
   Widget _buildInfoColumn(
     String label,
     String value,
@@ -133,18 +115,18 @@ class DeviceCard extends StatelessWidget {
         Text(
           label,
           maxLines: 1,
+          softWrap: false,
           overflow: TextOverflow.ellipsis,
           style: GoogleFonts.poppins(
             fontSize: 12,
             color: const Color(0xFF5A7865),
           ),
         ),
-
         const SizedBox(height: 4),
-
         Text(
           value,
           maxLines: 1,
+          softWrap: false,
           overflow: TextOverflow.ellipsis,
           style: GoogleFonts.poppins(
             fontSize: 14,

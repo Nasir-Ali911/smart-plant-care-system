@@ -34,12 +34,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
   // ============================================================
 
   final FirebaseAuth _auth = FirebaseAuth.instance;
-
-  final FirebaseDatabase _database =
-      FirebaseDatabase.instance;
-
-  final FirebaseFirestore _firestore =
-      FirebaseFirestore.instance;
+  final FirebaseDatabase _database = FirebaseDatabase.instance;
+  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
   late DatabaseReference _smartPlantRef;
   late DatabaseReference _plantsRef;
@@ -49,6 +45,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   // ============================================================
 
   String _userName = 'User';
+  bool _isLoadingProfile = true;
 
   // ============================================================
   // SENSOR DATA
@@ -82,17 +79,16 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   // ============================================================
-  // USER PLANTS
-  //
-  // Your current Firebase structure has /Plants as the actual
-  // plant collection, so the dashboard count is taken from there.
-  // ============================================================
-
-  // ============================================================
   // LOAD USER PROFILE
   // ============================================================
 
   Future<void> _loadUserProfile() async {
+    if (mounted) {
+      setState(() {
+        _isLoadingProfile = true;
+      });
+    }
+
     try {
       final User? user = _auth.currentUser;
 
@@ -100,80 +96,65 @@ class _DashboardScreenState extends State<DashboardScreen> {
         if (mounted) {
           setState(() {
             _userName = 'User';
+            _isLoadingProfile = false;
           });
         }
-
         return;
       }
 
-      // ----------------------------------------------------------
-      // First try Firestore user profile
-      // ----------------------------------------------------------
-
+      // Try Firestore user profile first
       try {
         final DocumentSnapshot<Map<String, dynamic>> snapshot =
-            await _firestore
-                .collection('users')
-                .doc(user.uid)
-                .get();
+            await _firestore.collection('users').doc(user.uid).get();
 
         if (snapshot.exists) {
-          final Map<String, dynamic>? data =
-              snapshot.data();
-
-          final String name =
-              data?['name']?.toString().trim() ?? '';
+          final Map<String, dynamic>? data = snapshot.data();
+          final String name = data?['name']?.toString().trim() ?? '';
 
           if (name.isNotEmpty) {
             if (mounted) {
               setState(() {
                 _userName = _formatName(name);
+                _isLoadingProfile = false;
               });
             }
-
             return;
           }
         }
       } catch (e) {
-        debugPrint(
-          'Firestore profile lookup failed: $e',
-        );
+        debugPrint('Firestore profile lookup failed: $e');
       }
 
-      // ----------------------------------------------------------
       // Firebase Auth fallback
-      // ----------------------------------------------------------
-
-      final String displayName =
-          user.displayName?.trim() ?? '';
+      final String displayName = user.displayName?.trim() ?? '';
 
       if (displayName.isNotEmpty) {
         if (mounted) {
           setState(() {
-            _userName =
-                _formatName(displayName);
+            _userName = _formatName(displayName);
+            _isLoadingProfile = false;
           });
         }
-
         return;
       }
 
-      // ----------------------------------------------------------
       // Email fallback
-      // ----------------------------------------------------------
-
       if (mounted) {
         setState(() {
-          _userName =
-              _formatName(
+          _userName = _formatName(
             _getNameFromEmail(user.email),
           );
+          _isLoadingProfile = false;
         });
       }
     } catch (e) {
-      debugPrint(
-        'ERROR LOADING USER PROFILE: $e',
-      );
+      debugPrint('ERROR LOADING USER PROFILE: $e');
+
+      if (mounted) {
+        setState(() {
+          _isLoadingProfile = false;
+        });
+      }
     }
   }
 
@@ -190,9 +171,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
     return cleaned
         .split(' ')
-        .where(
-          (word) => word.isNotEmpty,
-        )
+        .where((word) => word.isNotEmpty)
         .map(
           (word) =>
               word[0].toUpperCase() +
@@ -210,14 +189,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
       return 'User';
     }
 
-    final String namePart =
-        email.split('@').first;
+    final String namePart = email.split('@').first;
 
-    if (namePart.isEmpty) {
-      return 'User';
-    }
-
-    return namePart;
+    return namePart.isEmpty ? 'User' : namePart;
   }
 
   // ============================================================
@@ -246,9 +220,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   // SOIL PROCESSING
   // ============================================================
 
-  SoilResult _processSoilStatus(
-    String value,
-  ) {
+  SoilResult _processSoilStatus(String value) {
     if (value.trim().isEmpty) {
       return const SoilResult(
         status: 'Waiting',
@@ -256,12 +228,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       );
     }
 
-    final String upper =
-        value.toUpperCase();
-
-    // ----------------------------------------------------------
-    // DRY
-    // ----------------------------------------------------------
+    final String upper = value.toUpperCase();
 
     if (upper.contains('DRY')) {
       return const SoilResult(
@@ -270,10 +237,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
       );
     }
 
-    // ----------------------------------------------------------
-    // MOIST
-    // ----------------------------------------------------------
-
     if (upper.contains('MOIST')) {
       return const SoilResult(
         status: 'MOIST',
@@ -281,20 +244,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
       );
     }
 
-    // ----------------------------------------------------------
-    // WET
-    // ----------------------------------------------------------
-
     if (upper.contains('WET')) {
       return const SoilResult(
         status: 'WET',
         message: 'Well Watered',
       );
     }
-
-    // ----------------------------------------------------------
-    // NORMAL
-    // ----------------------------------------------------------
 
     if (upper.contains('NORMAL')) {
       return const SoilResult(
@@ -313,9 +268,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   // TEMPERATURE STATUS
   // ============================================================
 
-  String _getTemperatureStatus(
-    double value,
-  ) {
+  String _getTemperatureStatus(double value) {
     if (value < 10) {
       return 'Low';
     }
@@ -331,9 +284,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   // HUMIDITY STATUS
   // ============================================================
 
-  String _getHumidityStatus(
-    double value,
-  ) {
+  String _getHumidityStatus(double value) {
     if (value < 30) {
       return 'Low';
     }
@@ -349,9 +300,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   // LIGHT STATUS
   // ============================================================
 
-  String _getLightStatus(
-    double value,
-  ) {
+  String _getLightStatus(double value) {
     if (value < 100) {
       return 'Low';
     }
@@ -367,9 +316,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   // NUMBER CONVERSION
   // ============================================================
 
-  double? _toDouble(
-    dynamic value,
-  ) {
+  double? _toDouble(dynamic value) {
     if (value == null) {
       return null;
     }
@@ -394,17 +341,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
     double? light,
     String? soilStatus,
   }) {
-    // ----------------------------------------------------------
-    // If there is no explicit Device value, use live sensor
-    // data as evidence that the ESP device is online.
-    // ----------------------------------------------------------
-
     if (deviceValue == null) {
       return temperature != null ||
           humidity != null ||
           light != null ||
-          (soilStatus != null &&
-              soilStatus.isNotEmpty);
+          (soilStatus != null && soilStatus.isNotEmpty);
     }
 
     if (deviceValue is bool) {
@@ -412,9 +353,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     }
 
     final String value =
-        deviceValue.toString()
-            .trim()
-            .toLowerCase();
+        deviceValue.toString().trim().toLowerCase();
 
     if (value == 'connected' ||
         value == 'online' ||
@@ -443,7 +382,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
         return Colors.red;
 
       case 'MOIST':
-        return Colors.orange;
+        return Colors.green;
 
       case 'WET':
         return Colors.blue;
@@ -471,8 +410,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (context) =>
-            const ProfileScreen(),
+        builder: (context) => const ProfileScreen(),
       ),
     );
   }
@@ -482,18 +420,26 @@ class _DashboardScreenState extends State<DashboardScreen> {
   // ============================================================
 
   @override
-  Widget build(
-    BuildContext context,
-  ) {
+  Widget build(BuildContext context) {
     return StreamBuilder<DatabaseEvent>(
       stream: _smartPlantRef.onValue,
-      builder: (
-        context,
-        sensorSnapshot,
-      ) {
-        // --------------------------------------------------------
-        // READ SENSOR DATA
-        // --------------------------------------------------------
+      builder: (context, sensorSnapshot) {
+        // Loading state
+        if (sensorSnapshot.connectionState ==
+            ConnectionState.waiting) {
+          return _buildLoadingScreen();
+        }
+
+        // Error state
+        if (sensorSnapshot.hasError) {
+          return _buildErrorScreen(
+            sensorSnapshot.error.toString(),
+          );
+        }
+
+        // ========================================================
+        // SENSOR DATA
+        // ========================================================
 
         double? temperature;
         double? humidity;
@@ -502,38 +448,26 @@ class _DashboardScreenState extends State<DashboardScreen> {
         String soilStatusValue = '';
 
         bool sensorDataAvailable = false;
+        bool deviceConnected = false;
 
         if (sensorSnapshot.hasData &&
-            sensorSnapshot
-                    .data!
-                    .snapshot
-                    .value !=
-                null) {
+            sensorSnapshot.data!.snapshot.value != null) {
           final Object? rawValue =
-              sensorSnapshot
-                  .data!
-                  .snapshot
-                  .value;
+              sensorSnapshot.data!.snapshot.value;
 
           if (rawValue is Map) {
-            final Map<dynamic, dynamic>
-                data =
-                Map<dynamic, dynamic>.from(
-              rawValue,
-            );
+            final Map<dynamic, dynamic> data =
+                Map<dynamic, dynamic>.from(rawValue);
 
-            temperature =
-                _toDouble(
+            temperature = _toDouble(
               data['Temperature'],
             );
 
-            humidity =
-                _toDouble(
+            humidity = _toDouble(
               data['Humidity'],
             );
 
-            lightIntensity =
-                _toDouble(
+            lightIntensity = _toDouble(
               data['LightIntensity'],
             );
 
@@ -545,16 +479,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
             sensorDataAvailable =
                 temperature != null ||
-                    humidity != null ||
-                    lightIntensity != null ||
-                    soilStatusValue.isNotEmpty;
+                humidity != null ||
+                lightIntensity != null ||
+                soilStatusValue.isNotEmpty;
 
-            // ----------------------------------------------------
-            // DEVICE
-            // ----------------------------------------------------
-
-            final bool device =
-                _getDeviceStatus(
+            deviceConnected = _getDeviceStatus(
               data['Device'],
               temperature: temperature,
               humidity: humidity,
@@ -562,26 +491,26 @@ class _DashboardScreenState extends State<DashboardScreen> {
               soilStatus: soilStatusValue,
             );
 
-            // Keep local state synchronized.
-            if (_deviceConnected != device) {
-              WidgetsBinding.instance
-                  .addPostFrameCallback(
-                (_) {
-                  if (mounted) {
-                    setState(() {
-                      _deviceConnected =
-                          device;
-                    });
-                  }
-                },
+            _deviceConnected = deviceConnected;
+            _temperature = temperature;
+            _humidity = humidity;
+            _lightIntensity = lightIntensity;
+
+            if (sensorDataAvailable) {
+              final SoilResult soil =
+                  _processSoilStatus(
+                soilStatusValue,
               );
+
+              _soilStatus = soil.status;
+              _soilMessage = soil.message;
             }
           }
         }
 
-        // --------------------------------------------------------
+        // ========================================================
         // SOIL
-        // --------------------------------------------------------
+        // ========================================================
 
         final SoilResult soil =
             sensorDataAvailable
@@ -590,13 +519,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   )
                 : const SoilResult(
                     status: 'Waiting',
-                    message:
-                        'Waiting for sensor data',
+                    message: 'Waiting for sensor data',
                   );
 
-        // --------------------------------------------------------
+        // ========================================================
         // SENSOR STATUS
-        // --------------------------------------------------------
+        // ========================================================
 
         final String temperatureStatus =
             temperature != null
@@ -619,22 +547,17 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   )
                 : 'Waiting';
 
-        // --------------------------------------------------------
+        // ========================================================
         // GREETING
-        // --------------------------------------------------------
+        // ========================================================
 
-        final String greeting =
-            _getGreeting();
+        final String greeting = _getGreeting();
 
         // ========================================================
-        // ALL SCREENS
+        // SCREENS
         // ========================================================
 
         final List<Widget> screens = [
-          // ======================================================
-          // HOME
-          // ======================================================
-
           _buildHomeScreen(
             greeting: greeting,
             temperature: temperature,
@@ -647,31 +570,17 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 temperatureStatus,
             humidityStatus:
                 humidityStatus,
-            lightStatus:
-                lightStatus,
+            lightStatus: lightStatus,
+            deviceConnected:
+                deviceConnected,
           ),
-
-          // ======================================================
-          // PLANTS
-          // ======================================================
-
           const PlantsScreen(),
-
-          // ======================================================
-          // NOTIFICATIONS
-          // ======================================================
-
           const NotificationsScreen(),
-
-          // ======================================================
-          // PROFILE
-          // ======================================================
-
           const ProfileScreen(),
         ];
 
         // ========================================================
-        // MAIN SCAFFOLD
+        // SCAFFOLD
         // ========================================================
 
         return Scaffold(
@@ -679,94 +588,268 @@ class _DashboardScreenState extends State<DashboardScreen> {
               const Color(0xFFE4EDE6),
 
           body: SafeArea(
-            child: screens[_currentIndex],
+            child: AnimatedSwitcher(
+              duration:
+                  const Duration(milliseconds: 300),
+              transitionBuilder:
+                  (child, animation) {
+                return FadeTransition(
+                  opacity: animation,
+                  child: child,
+                );
+              },
+              child: KeyedSubtree(
+                key: ValueKey(_currentIndex),
+                child:
+                    screens[_currentIndex],
+              ),
+            ),
           ),
 
           // ======================================================
           // BOTTOM NAVIGATION
           // ======================================================
 
-          bottomNavigationBar:
-              BottomNavigationBar(
-            currentIndex:
-                _currentIndex,
-
-            onTap: (index) {
-              setState(() {
-                _currentIndex = index;
-              });
-            },
-
-            type:
-                BottomNavigationBarType.fixed,
-
-            backgroundColor:
-                Colors.white,
-
-            selectedItemColor:
-                const Color(0xFF134E39),
-
-            unselectedItemColor:
-                const Color(0xFF5A7865),
-
-            selectedLabelStyle:
-                GoogleFonts.poppins(
-              fontSize: 12,
-              fontWeight:
-                  FontWeight.bold,
+          bottomNavigationBar: Container(
+            decoration: BoxDecoration(
+              boxShadow: [
+                BoxShadow(
+                  color:
+                      Colors.black.withOpacity(0.1),
+                  blurRadius: 10,
+                  offset:
+                      const Offset(0, -2),
+                ),
+              ],
             ),
+            child: BottomNavigationBar(
+              currentIndex:
+                  _currentIndex,
 
-            unselectedLabelStyle:
-                GoogleFonts.poppins(
-              fontSize: 12,
-              fontWeight:
-                  FontWeight.w500,
+              onTap: (index) {
+                setState(() {
+                  _currentIndex = index;
+                });
+              },
+
+              type:
+                  BottomNavigationBarType.fixed,
+
+              backgroundColor:
+                  Colors.white,
+
+              selectedItemColor:
+                  const Color(0xFF134E39),
+
+              unselectedItemColor:
+                  const Color(0xFF5A7865),
+
+              selectedLabelStyle:
+                  GoogleFonts.poppins(
+                fontSize: 12,
+                fontWeight:
+                    FontWeight.bold,
+              ),
+
+              unselectedLabelStyle:
+                  GoogleFonts.poppins(
+                fontSize: 12,
+                fontWeight:
+                    FontWeight.w500,
+              ),
+
+              items: const [
+                BottomNavigationBarItem(
+                  icon: Icon(
+                    Icons.home_outlined,
+                  ),
+                  activeIcon: Icon(
+                    Icons.home,
+                  ),
+                  label: 'Home',
+                ),
+
+                BottomNavigationBarItem(
+                  icon: Icon(
+                    Icons.eco_outlined,
+                  ),
+                  activeIcon: Icon(
+                    Icons.eco,
+                  ),
+                  label: 'Plants',
+                ),
+
+                BottomNavigationBarItem(
+                  icon: Icon(
+                    Icons.notifications_outlined,
+                  ),
+                  activeIcon: Icon(
+                    Icons.notifications,
+                  ),
+                  label: 'Notifications',
+                ),
+
+                BottomNavigationBarItem(
+                  icon: Icon(
+                    Icons.person_outline,
+                  ),
+                  activeIcon: Icon(
+                    Icons.person,
+                  ),
+                  label: 'Profile',
+                ),
+              ],
             ),
-
-            items: const [
-              BottomNavigationBarItem(
-                icon: Icon(
-                  Icons.home_outlined,
-                ),
-                activeIcon: Icon(
-                  Icons.home,
-                ),
-                label: 'Home',
-              ),
-
-              BottomNavigationBarItem(
-                icon: Icon(
-                  Icons.eco_outlined,
-                ),
-                activeIcon: Icon(
-                  Icons.eco,
-                ),
-                label: 'Plants',
-              ),
-
-              BottomNavigationBarItem(
-                icon: Icon(
-                  Icons.notifications_outlined,
-                ),
-                activeIcon: Icon(
-                  Icons.notifications,
-                ),
-                label: 'Notifications',
-              ),
-
-              BottomNavigationBarItem(
-                icon: Icon(
-                  Icons.person_outline,
-                ),
-                activeIcon: Icon(
-                  Icons.person,
-                ),
-                label: 'Profile',
-              ),
-            ],
           ),
         );
       },
+    );
+  }
+
+  // ============================================================
+  // LOADING SCREEN
+  // ============================================================
+
+  Widget _buildLoadingScreen() {
+    return Scaffold(
+      backgroundColor:
+          const Color(0xFFE4EDE6),
+      body: Center(
+        child: Column(
+          mainAxisAlignment:
+              MainAxisAlignment.center,
+          children: [
+            const CircularProgressIndicator(
+              color: Color(0xFF134E39),
+              strokeWidth: 3,
+            ),
+
+            const SizedBox(height: 20),
+
+            Text(
+              'Loading your dashboard...',
+              style: GoogleFonts.poppins(
+                fontSize: 14,
+                fontWeight:
+                    FontWeight.w500,
+                color:
+                    const Color(0xFF5A7865),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // ============================================================
+  // ERROR SCREEN
+  // ============================================================
+
+  Widget _buildErrorScreen(String error) {
+    return Scaffold(
+      backgroundColor:
+          const Color(0xFFE4EDE6),
+
+      body: Center(
+        child: Padding(
+          padding:
+              const EdgeInsets.all(24),
+
+          child: Column(
+            mainAxisAlignment:
+                MainAxisAlignment.center,
+
+            children: [
+              Container(
+                width: 80,
+                height: 80,
+
+                decoration:
+                    BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: Colors.red
+                      .withOpacity(0.1),
+                ),
+
+                child: const Icon(
+                  Icons.error_outline,
+                  size: 40,
+                  color: Colors.red,
+                ),
+              ),
+
+              const SizedBox(height: 24),
+
+              Text(
+                'Unable to load data',
+                style:
+                    GoogleFonts.poppins(
+                  fontSize: 18,
+                  fontWeight:
+                      FontWeight.bold,
+                  color:
+                      const Color(0xFF134E39),
+                ),
+              ),
+
+              const SizedBox(height: 8),
+
+              Text(
+                'Please check your connection and try again',
+                textAlign:
+                    TextAlign.center,
+                style:
+                    GoogleFonts.poppins(
+                  fontSize: 14,
+                  color:
+                      const Color(0xFF5A7865),
+                ),
+              ),
+
+              const SizedBox(height: 24),
+
+              ElevatedButton(
+                onPressed: () {
+                  setState(() {});
+                },
+
+                style:
+                    ElevatedButton.styleFrom(
+                  backgroundColor:
+                      const Color(
+                    0xFF134E39,
+                  ),
+                  foregroundColor:
+                      Colors.white,
+                  padding:
+                      const EdgeInsets
+                          .symmetric(
+                    horizontal: 32,
+                    vertical: 14,
+                  ),
+                  shape:
+                      RoundedRectangleBorder(
+                    borderRadius:
+                        BorderRadius.circular(
+                      12,
+                    ),
+                  ),
+                ),
+
+                child: Text(
+                  'Retry',
+                  style:
+                      GoogleFonts.poppins(
+                    fontWeight:
+                        FontWeight.bold,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 
@@ -784,586 +867,704 @@ class _DashboardScreenState extends State<DashboardScreen> {
     required String temperatureStatus,
     required String humidityStatus,
     required String lightStatus,
+    required bool deviceConnected,
   }) {
-    return SingleChildScrollView(
-      physics:
-          const AlwaysScrollableScrollPhysics(),
+    return RefreshIndicator(
+      onRefresh: () async {
+        await _loadUserProfile();
 
-      padding: const EdgeInsets.symmetric(
-        horizontal: 20,
-        vertical: 16,
+        if (mounted) {
+          setState(() {});
+        }
+      },
+
+      color:
+          const Color(0xFF134E39),
+
+      child: SingleChildScrollView(
+        physics:
+            const AlwaysScrollableScrollPhysics(),
+
+        padding: EdgeInsets.symmetric(
+          horizontal:
+              MediaQuery.of(context).size.width *
+                  0.05,
+          vertical: 16,
+        ),
+
+        child: Column(
+          crossAxisAlignment:
+              CrossAxisAlignment.stretch,
+
+          children: [
+            // ====================================================
+            // HEADER
+            // ====================================================
+
+            _buildHeader(greeting),
+
+            const SizedBox(height: 24),
+
+            // ====================================================
+            // PLANT OVERVIEW
+            // ====================================================
+
+            Text(
+              'Plant Overview',
+              style:
+                  GoogleFonts.poppins(
+                fontSize: 16,
+                fontWeight:
+                    FontWeight.bold,
+                color:
+                    const Color(0xFF134E39),
+              ),
+            ),
+
+            const SizedBox(height: 12),
+
+            _buildPlantOverview(
+              sensorDataAvailable,
+              soil,
+              deviceConnected,
+            ),
+
+            const SizedBox(height: 24),
+
+            // ====================================================
+            // ENVIRONMENT MONITORING
+            // ====================================================
+
+            Text(
+              'Environment Monitoring',
+              style:
+                  GoogleFonts.poppins(
+                fontSize: 16,
+                fontWeight:
+                    FontWeight.bold,
+                color:
+                    const Color(0xFF134E39),
+              ),
+            ),
+
+            const SizedBox(height: 12),
+
+            _buildSensorCards(
+              temperature: temperature,
+              humidity: humidity,
+              lightIntensity:
+                  lightIntensity,
+              soil: soil,
+              sensorDataAvailable:
+                  sensorDataAvailable,
+              temperatureStatus:
+                  temperatureStatus,
+              humidityStatus:
+                  humidityStatus,
+              lightStatus:
+                  lightStatus,
+            ),
+
+            const SizedBox(height: 24),
+
+            // ====================================================
+            // QUICK ACTIONS
+            // ====================================================
+
+            Text(
+              'Quick Actions',
+              style:
+                  GoogleFonts.poppins(
+                fontSize: 16,
+                fontWeight:
+                    FontWeight.bold,
+                color:
+                    const Color(0xFF134E39),
+              ),
+            ),
+
+            const SizedBox(height: 12),
+
+            _buildQuickActions(),
+
+            const SizedBox(height: 24),
+
+            // ====================================================
+            // RECENT ACTIVITY
+            // ====================================================
+
+            Text(
+              'Recent Activity',
+              style:
+                  GoogleFonts.poppins(
+                fontSize: 16,
+                fontWeight:
+                    FontWeight.bold,
+                color:
+                    const Color(0xFF134E39),
+              ),
+            ),
+
+            const SizedBox(height: 12),
+
+            const Column(
+              children: [
+                RecentActivityCard(
+                  title:
+                      'Irrigation started',
+                  time:
+                      '2 hours ago',
+                  icon:
+                      Icons.water_drop,
+                ),
+
+                RecentActivityCard(
+                  title:
+                      'ESP8622 Device connected',
+                  time:
+                      '5 hours ago',
+                  icon:
+                      Icons.wifi,
+                ),
+
+                RecentActivityCard(
+                  title:
+                      'Sensor telemetry updated',
+                  time:
+                      'Just now',
+                  icon:
+                      Icons.sync,
+                ),
+              ],
+            ),
+
+            const SizedBox(height: 24),
+          ],
+        ),
       ),
+    );
+  }
 
-      child: Column(
-        crossAxisAlignment:
-            CrossAxisAlignment.stretch,
+  // ============================================================
+  // HEADER
+  // ============================================================
 
-        children: [
-          // ======================================================
-          // HEADER
-          // ======================================================
-
-          Row(
+  Widget _buildHeader(String greeting) {
+    return LayoutBuilder(
+      builder:
+          (context, constraints) {
+        if (constraints.maxWidth < 360) {
+          return Column(
             crossAxisAlignment:
                 CrossAxisAlignment.start,
 
             children: [
-              Expanded(
-                child: Column(
-                  crossAxisAlignment:
-                      CrossAxisAlignment.start,
+              Row(
+                mainAxisAlignment:
+                    MainAxisAlignment.end,
+                children: [
+                  _buildNotificationButton(),
 
-                  children: [
-                    Text(
-                      '$greeting,',
-                      style:
-                          GoogleFonts.poppins(
-                        fontSize: 22,
-                        fontWeight:
-                            FontWeight.bold,
-                        color:
-                            const Color(
-                          0xFF134E39,
-                        ),
-                        height: 1.2,
-                      ),
-                    ),
+                  const SizedBox(width: 8),
 
-                    const SizedBox(
-                      height: 2,
-                    ),
+                  _buildProfileAvatar(),
+                ],
+              ),
 
-                    Text(
-                      _userName,
-                      maxLines: 1,
-                      overflow:
-                          TextOverflow.ellipsis,
-                      style:
-                          GoogleFonts.poppins(
-                        fontSize: 22,
-                        fontWeight:
-                            FontWeight.bold,
-                        color:
-                            const Color(
-                          0xFF134E39,
-                        ),
-                        height: 1.2,
-                      ),
-                    ),
+              const SizedBox(height: 12),
 
-                    const SizedBox(
-                      height: 4,
-                    ),
-
-                    Text(
-                      'Monitor your smart plants effortlessly.',
-                      maxLines: 2,
-                      overflow:
-                          TextOverflow.ellipsis,
-                      style:
-                          GoogleFonts.poppins(
-                        fontSize: 12,
-                        fontWeight:
-                            FontWeight.w500,
-                        color:
-                            const Color(
-                          0xFF5A7865,
-                        ),
-                      ),
-                    ),
-                  ],
+              Text(
+                '$greeting,',
+                style:
+                    GoogleFonts.poppins(
+                  fontSize: 20,
+                  fontWeight:
+                      FontWeight.bold,
+                  color:
+                      const Color(0xFF134E39),
+                  height: 1.2,
                 ),
               ),
 
-              const SizedBox(
-                width: 10,
-              ),
-
-              // ==================================================
-              // NOTIFICATION
-              // ==================================================
-
-              Container(
-                decoration:
-                    BoxDecoration(
-                  color: Colors.white,
-                  borderRadius:
-                      BorderRadius.circular(
-                    12,
-                  ),
-                ),
-
-                child: IconButton(
-                  icon: const Icon(
-                    Icons
-                        .notifications_outlined,
-                    color:
-                        Color(0xFF134E39),
-                  ),
-
-                  onPressed: () {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (context) =>
-                            const NotificationsScreen(),
-                      ),
-                    );
-                  },
+              Text(
+                _userName,
+                maxLines: 1,
+                overflow:
+                    TextOverflow.ellipsis,
+                style:
+                    GoogleFonts.poppins(
+                  fontSize: 20,
+                  fontWeight:
+                      FontWeight.bold,
+                  color:
+                      const Color(0xFF134E39),
+                  height: 1.2,
                 ),
               ),
 
-              const SizedBox(
-                width: 8,
-              ),
+              const SizedBox(height: 4),
 
-              // ==================================================
-              // PROFILE
-              // ==================================================
-
-              GestureDetector(
-                onTap: _openProfile,
-
-                child: Container(
-                  width: 48,
-                  height: 48,
-
-                  decoration:
-                      const BoxDecoration(
-                    shape: BoxShape.circle,
-                    color:
-                        Color(0xFFD0E2D4),
-                  ),
-
-                  child: const Center(
-                    child: Icon(
-                      Icons.person,
-                      color:
-                          Color(0xFF134E39),
-                      size: 26,
-                    ),
-                  ),
+              Text(
+                'Monitor your smart plants effortlessly.',
+                maxLines: 2,
+                overflow:
+                    TextOverflow.ellipsis,
+                style:
+                    GoogleFonts.poppins(
+                  fontSize: 12,
+                  fontWeight:
+                      FontWeight.w500,
+                  color:
+                      const Color(0xFF5A7865),
                 ),
               ),
             ],
-          ),
+          );
+        }
 
-          const SizedBox(
-            height: 24,
-          ),
+        return Row(
+          crossAxisAlignment:
+              CrossAxisAlignment.start,
 
-          // ======================================================
-          // PLANT OVERVIEW
-          // ======================================================
-
-          Text(
-            'Plant Overview',
-            style: GoogleFonts.poppins(
-              fontSize: 16,
-              fontWeight:
-                  FontWeight.bold,
-              color:
-                  const Color(0xFF134E39),
-            ),
-          ),
-
-          const SizedBox(
-            height: 12,
-          ),
-
-          StreamBuilder<DatabaseEvent>(
-            stream: _plantsRef.onValue,
-
-            builder: (
-              context,
-              plantSnapshot,
-            ) {
-              int totalPlants = 0;
-
-              if (plantSnapshot.hasData) {
-                final Object? value =
-                    plantSnapshot
-                        .data!
-                        .snapshot
-                        .value;
-
-                if (value is Map) {
-                  totalPlants =
-                      value.length;
-                }
-              }
-
-              return GridView.count(
-                crossAxisCount: 2,
-
-                crossAxisSpacing: 12,
-                mainAxisSpacing: 12,
-
-                shrinkWrap: true,
-
-                physics:
-                    const NeverScrollableScrollPhysics(),
-
-                childAspectRatio: 1.55,
+          children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment:
+                    CrossAxisAlignment.start,
 
                 children: [
-                  // =================================================
-                  // TOTAL PLANTS
-                  // =================================================
-
-                  SummaryCard(
-                    title:
-                        'Total Plants',
-                    value:
-                        totalPlants
-                            .toString(),
-                    icon:
-                        Icons
-                            .eco_outlined,
-                    iconColor:
-                        Colors.green,
+                  Text(
+                    '$greeting,',
+                    style:
+                        GoogleFonts.poppins(
+                      fontSize: 22,
+                      fontWeight:
+                          FontWeight.bold,
+                      color:
+                          const Color(
+                        0xFF134E39,
+                      ),
+                      height: 1.2,
+                    ),
                   ),
 
-                  // =================================================
-                  // SENSOR READINGS
-                  // =================================================
+                  const SizedBox(height: 2),
 
-                  SummaryCard(
-                    title:
-                        'Sensor Readings',
-                    value:
-                        sensorDataAvailable
-                            ? '4'
-                            : '0',
-                    icon:
-                        Icons
-                            .sensors_outlined,
-                    iconColor:
-                        Colors.blue,
+                  Text(
+                    _userName,
+                    maxLines: 1,
+                    overflow:
+                        TextOverflow.ellipsis,
+                    style:
+                        GoogleFonts.poppins(
+                      fontSize: 22,
+                      fontWeight:
+                          FontWeight.bold,
+                      color:
+                          const Color(
+                        0xFF134E39,
+                      ),
+                      height: 1.2,
+                    ),
                   ),
 
-                  // =================================================
-                  // SOIL MONITORING
-                  // =================================================
+                  const SizedBox(height: 4),
 
-                  SummaryCard(
-                    title:
-                        'Soil Monitoring',
-
-                    value:
-                        soil.status ==
-                                'Waiting'
-                            ? 'Waiting'
-                            : soil.message,
-
-                    subtitle:
-                        soil.status ==
-                                'Waiting'
-                            ? null
-                            : soil.status,
-
-                    icon:
-                        Icons
-                            .water_drop_outlined,
-
-                    iconColor:
-                        _soilColor(),
-                  ),
-
-                  // =================================================
-                  // DEVICE
-                  // =================================================
-
-                  SummaryCard(
-                    title:
-                        'Device',
-
-                    value:
-                        _deviceConnected
-                            ? 'Connected'
-                            : 'Offline',
-
-                    icon:
-                        Icons
-                            .devices_outlined,
-
-                    iconColor:
-                        _deviceColor(),
+                  Text(
+                    'Monitor your smart plants effortlessly.',
+                    maxLines: 2,
+                    overflow:
+                        TextOverflow.ellipsis,
+                    style:
+                        GoogleFonts.poppins(
+                      fontSize: 12,
+                      fontWeight:
+                          FontWeight.w500,
+                      color:
+                          const Color(
+                        0xFF5A7865,
+                      ),
+                    ),
                   ),
                 ],
-              );
-            },
-          ),
-
-          const SizedBox(
-            height: 24,
-          ),
-
-          // ======================================================
-          // ENVIRONMENT MONITORING
-          // ======================================================
-
-          Text(
-            'Environment Monitoring',
-            style: GoogleFonts.poppins(
-              fontSize: 16,
-              fontWeight:
-                  FontWeight.bold,
-              color:
-                  const Color(0xFF134E39),
+              ),
             ),
-          ),
 
-          const SizedBox(
-            height: 12,
-          ),
+            const SizedBox(width: 10),
 
-          // ======================================================
-          // TEMPERATURE
-          // ======================================================
+            _buildNotificationButton(),
 
-          SensorCard(
-            title: 'Temperature',
+            const SizedBox(width: 8),
 
-            value:
-                temperature != null
-                    ? '${temperature.toStringAsFixed(1)}°C'
-                    : 'Waiting...',
+            _buildProfileAvatar(),
+          ],
+        );
+      },
+    );
+  }
 
-            icon:
-                Icons.thermostat,
+  // ============================================================
+  // NOTIFICATION BUTTON
+  // ============================================================
 
-            iconColor:
-                Colors.orange,
-
-            status:
-                temperatureStatus,
-          ),
-
-          const SizedBox(
-            height: 12,
-          ),
-
-          // ======================================================
-          // SOIL
-          // ======================================================
-
-          SensorCard(
-            title:
-                'Soil Status',
-
-            value:
-                sensorDataAvailable
-                    ? soil.status
-                    : 'Waiting...',
-
-            icon:
-                Icons.grass,
-
-            iconColor:
-                _soilColor(),
-
-            status:
-                sensorDataAvailable
-                    ? soil.message
-                    : 'Waiting',
-          ),
-
-          const SizedBox(
-            height: 12,
-          ),
-
-          // ======================================================
-          // HUMIDITY
-          // ======================================================
-
-          SensorCard(
-            title:
-                'Humidity',
-
-            value:
-                humidity != null
-                    ? '${humidity.toStringAsFixed(1)}%'
-                    : 'Waiting...',
-
-            icon:
-                Icons.air,
-
-            iconColor:
-                Colors.blue,
-
-            status:
-                humidityStatus,
-          ),
-
-          const SizedBox(
-            height: 12,
-          ),
-
-          // ======================================================
-          // LIGHT
-          // ======================================================
-
-          SensorCard(
-            title:
-                'Light Intensity',
-
-            value:
-                lightIntensity != null
-                    ? lightIntensity
-                        .toStringAsFixed(0)
-                    : 'Waiting...',
-
-            unit:
-                'lux',
-
-            icon:
-                Icons
-                    .wb_sunny_outlined,
-
-            iconColor:
-                Colors.amber,
-
-            status:
-                lightStatus,
-          ),
-
-          const SizedBox(
-            height: 24,
-          ),
-
-          // ======================================================
-          // QUICK ACTIONS
-          // ======================================================
-
-          Text(
-            'Quick Actions',
-            style: GoogleFonts.poppins(
-              fontSize: 16,
-              fontWeight:
-                  FontWeight.bold,
-              color:
-                  const Color(0xFF134E39),
-            ),
-          ),
-
-          const SizedBox(
-            height: 12,
-          ),
-
-          Row(
-            children: [
-              Expanded(
-                child:
-                    QuickActionCard(
-                  title:
-                      'Add Plant',
-
-                  icon:
-                      Icons
-                          .add_circle_outline,
-
-                  onTap: () {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder:
-                            (context) =>
-                                const AddPlantScreen(),
-                      ),
-                    );
-                  },
-                ),
-              ),
-
-              const SizedBox(
-                width: 12,
-              ),
-
-              Expanded(
-                child:
-                    QuickActionCard(
-                  title:
-                      'Device Setup',
-
-                  icon:
-                      Icons
-                          .settings_input_antenna_rounded,
-
-                  onTap: () {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder:
-                            (context) =>
-                                const DeviceSetupScreen(),
-                      ),
-                    );
-                  },
-                ),
-              ),
-            ],
-          ),
-
-          const SizedBox(
-            height: 24,
-          ),
-
-          // ======================================================
-          // RECENT ACTIVITY
-          // ======================================================
-
-          Text(
-            'Recent Activity',
-            style: GoogleFonts.poppins(
-              fontSize: 16,
-              fontWeight:
-                  FontWeight.bold,
-              color:
-                  const Color(0xFF134E39),
-            ),
-          ),
-
-          const SizedBox(
-            height: 12,
-          ),
-
-          const Column(
-            children: [
-              RecentActivityCard(
-                title:
-                    'Irrigation started',
-                time:
-                    '2 hours ago',
-                icon:
-                    Icons.water_drop,
-              ),
-
-              RecentActivityCard(
-                title:
-                    'ESP32 Device connected',
-                time:
-                    '5 hours ago',
-                icon:
-                    Icons.wifi,
-              ),
-
-              RecentActivityCard(
-                title:
-                    'Sensor telemetry updated',
-                time:
-                    'Just now',
-                icon:
-                    Icons.sync,
-              ),
-            ],
-          ),
-
-          const SizedBox(
-            height: 24,
+  Widget _buildNotificationButton() {
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius:
+            BorderRadius.circular(12),
+        boxShadow: [
+          BoxShadow(
+            color:
+                Colors.black.withOpacity(0.05),
+            blurRadius: 8,
+            offset:
+                const Offset(0, 2),
           ),
         ],
       ),
+
+      child: IconButton(
+        icon: const Icon(
+          Icons.notifications_outlined,
+          color:
+              Color(0xFF134E39),
+        ),
+
+        onPressed: () {
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (context) =>
+                  const NotificationsScreen(),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  // ============================================================
+  // PROFILE AVATAR
+  // ============================================================
+
+  Widget _buildProfileAvatar() {
+    return GestureDetector(
+      onTap: _openProfile,
+
+      child: Container(
+        width: 48,
+        height: 48,
+
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          color:
+              const Color(0xFFD0E2D4),
+          border: Border.all(
+            color:
+                const Color(0xFF134E39)
+                    .withOpacity(0.3),
+            width: 2,
+          ),
+        ),
+
+        child: const Center(
+          child: Icon(
+            Icons.person,
+            color:
+                Color(0xFF134E39),
+            size: 26,
+          ),
+        ),
+      ),
+    );
+  }
+
+  // ============================================================
+  // PLANT OVERVIEW
+  // ============================================================
+
+  Widget _buildPlantOverview(
+    bool sensorDataAvailable,
+    SoilResult soil,
+    bool deviceConnected,
+  ) {
+    return StreamBuilder<DatabaseEvent>(
+      stream: _plantsRef.onValue,
+
+      builder:
+          (context, plantSnapshot) {
+        int totalPlants = 0;
+
+        if (plantSnapshot.hasData) {
+          final Object? value =
+              plantSnapshot
+                  .data!
+                  .snapshot
+                  .value;
+
+          if (value is Map) {
+            totalPlants = value.length;
+          }
+        }
+
+        return GridView.count(
+          crossAxisCount:
+              MediaQuery.of(context)
+                          .size
+                          .width >
+                      600
+                  ? 4
+                  : 2,
+
+          crossAxisSpacing: 12,
+
+          mainAxisSpacing: 12,
+
+          shrinkWrap: true,
+
+          physics:
+              const NeverScrollableScrollPhysics(),
+
+          childAspectRatio: 1.55,
+
+          children: [
+            SummaryCard(
+              title: 'Total Plants',
+              value:
+                  totalPlants.toString(),
+              icon:
+                  Icons.eco_outlined,
+              iconColor:
+                  Colors.green,
+            ),
+
+            SummaryCard(
+              title: 'Sensor Readings',
+              value:
+                  sensorDataAvailable
+                      ? '4'
+                      : '0',
+              icon:
+                  Icons.sensors_outlined,
+              iconColor:
+                  Colors.blue,
+            ),
+
+            SummaryCard(
+              title: 'Soil Monitoring',
+              value:
+                  soil.status == 'Waiting'
+                      ? 'Waiting'
+                      : soil.message,
+              subtitle:
+                  soil.status == 'Waiting'
+                      ? null
+                      : soil.status,
+              icon:
+                  Icons.water_drop_outlined,
+              iconColor:
+                  _soilColor(),
+            ),
+
+            SummaryCard(
+              title: 'Device',
+              value:
+                  deviceConnected
+                      ? 'Connected'
+                      : 'Offline',
+              icon:
+                  Icons.devices_outlined,
+              iconColor:
+                  deviceConnected
+                      ? Colors.green
+                      : Colors.grey,
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  // ============================================================
+  // SENSOR CARDS
+  // ============================================================
+
+  Widget _buildSensorCards({
+    required double? temperature,
+    required double? humidity,
+    required double? lightIntensity,
+    required SoilResult soil,
+    required bool sensorDataAvailable,
+    required String temperatureStatus,
+    required String humidityStatus,
+    required String lightStatus,
+  }) {
+    return Column(
+      children: [
+        // ========================================================
+        // TEMPERATURE
+        // ========================================================
+
+        SensorCard(
+          title: 'Temperature',
+
+          value: temperature != null
+              ? '${temperature.toStringAsFixed(1)}°C'
+              : '--',
+
+          icon: Icons.thermostat,
+
+          iconColor: Colors.orange,
+
+          status: temperatureStatus,
+
+          // FIXED:
+          // showLoading -> isLoading
+          isLoading: temperature == null,
+
+          isActive:
+              temperature != null,
+        ),
+
+        const SizedBox(height: 12),
+
+        // ========================================================
+        // SOIL STATUS
+        // ========================================================
+
+        SensorCard(
+          title: 'Soil Status',
+
+          value:
+              sensorDataAvailable
+                  ? soil.status
+                  : '--',
+
+          icon: Icons.grass,
+
+          iconColor: _soilColor(),
+
+          status:
+              sensorDataAvailable
+                  ? soil.message
+                  : 'Waiting',
+
+          // FIXED:
+          // showLoading -> isLoading
+          isLoading:
+              !sensorDataAvailable,
+
+          isActive:
+              sensorDataAvailable,
+        ),
+
+        const SizedBox(height: 12),
+
+        // ========================================================
+        // HUMIDITY
+        // ========================================================
+
+        SensorCard(
+          title: 'Humidity',
+
+          value: humidity != null
+              ? '${humidity.toStringAsFixed(1)}%'
+              : '--',
+
+          icon: Icons.air,
+
+          iconColor: Colors.blue,
+
+          status: humidityStatus,
+
+          // FIXED:
+          // showLoading -> isLoading
+          isLoading: humidity == null,
+
+          isActive:
+              humidity != null,
+        ),
+
+        const SizedBox(height: 12),
+
+        // ========================================================
+        // LIGHT INTENSITY
+        // ========================================================
+
+        SensorCard(
+          title: 'Light Intensity',
+
+          value: lightIntensity != null
+              ? lightIntensity.toStringAsFixed(0)
+              : '--',
+
+          unit: 'lux',
+
+          icon:
+              Icons.wb_sunny_outlined,
+
+          iconColor: Colors.amber,
+
+          status: lightStatus,
+
+          // FIXED:
+          // showLoading -> isLoading
+          isLoading:
+              lightIntensity == null,
+
+          isActive:
+              lightIntensity != null,
+        ),
+      ],
+    );
+  }
+
+  // ============================================================
+  // QUICK ACTIONS
+  // ============================================================
+
+  Widget _buildQuickActions() {
+    return Row(
+      children: [
+        Expanded(
+          child: QuickActionCard(
+            title: 'Add Plant',
+            icon:
+                Icons.add_circle_outline,
+
+            onTap: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) =>
+                      const AddPlantScreen(),
+                ),
+              );
+            },
+          ),
+        ),
+
+        const SizedBox(width: 12),
+
+        Expanded(
+          child: QuickActionCard(
+            title: 'Device Setup',
+            icon: Icons
+                .settings_input_antenna_rounded,
+
+            onTap: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) =>
+                      const DeviceSetupScreen(),
+                ),
+              );
+            },
+          ),
+        ),
+      ],
     );
   }
 }
