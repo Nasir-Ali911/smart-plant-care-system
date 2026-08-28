@@ -1,35 +1,24 @@
 // ============================================================
 // SMART PLANT CARE SYSTEM
-// ESP8266 + DHT22 + LDR + YL-69 + Firebase
+// ESP8266 + DHT22 + LDR + Soil Moisture + Firebase
 // ============================================================
 //
-// Firmware Version: v1.0.9-esp8266
+// Firmware Version: v1.2.0-esp8266
 //
-// CURRENT WIRING
+// TESTED SENSOR CONFIGURATION
+// ------------------------------------------------------------
 //
-// Soil Sensor:
-//   VCC  -> 3V3
-//   GND  -> GND
+// LDR:
 //   AOUT -> A0
-//   DOUT -> NC
+//
+// Soil Moisture:
+//   DOUT -> D7
 //
 // DHT22:
-//   VCC  -> 3V3
-//   GND  -> GND
-//   DATA -> D2
+//   DATA -> D5
 //
-// LDR Module:
-//   VCC  -> 3V3
-//   GND  -> GND
-//   DOUT -> D6
-//   AOUT -> NC
-//
-// FIREBASE ROOT:
+// Firebase:
 //   /SmartPlant
-//
-// SOIL OUTPUT:
-//   DRY (Needs Water!)
-//   WET (Soil is fine)
 //
 // ============================================================
 
@@ -42,8 +31,8 @@
 // WIFI
 // ============================================================
 
-#define WIFI_SSID "WIFI"
-#define WIFI_PASSWORD "Password"
+#define WIFI_SSID "SSID"
+#define WIFI_PASSWORD "Enter password"
 
 // ============================================================
 // FIREBASE
@@ -56,23 +45,24 @@
 // FIRMWARE
 // ============================================================
 
-#define FIRMWARE_VERSION "v1.0.9-esp8266"
+#define FIRMWARE_VERSION "v1.2.0-esp8266"
 
 // ============================================================
-// PINS
+// SENSOR PINS
 // ============================================================
 
-#define DHTPIN D2
+// LDR AOUT -> A0
+#define LDR_PIN A0
+
+// Soil DOUT -> D7
+#define SOIL_PIN D7
+
+// DHT22 DATA -> D5
+#define DHTPIN D5
 #define DHTTYPE DHT22
 
-// Soil AOUT
-#define SOIL_AOUT_PIN A0
-
-// LDR DOUT
-#define LDR_DOUT_PIN D6
-
 // ============================================================
-// SENSOR OBJECT
+// DHT OBJECT
 // ============================================================
 
 DHT dht(
@@ -92,59 +82,67 @@ FirebaseConfig config;
 // TIMING
 // ============================================================
 
-unsigned long previousMillis = 0;
+// Read sensors and update Firebase every 10 seconds.
+const unsigned long SENSOR_INTERVAL = 10000;
 
-const unsigned long SENSOR_INTERVAL = 5000;
+// Store history once every 60 seconds.
+const unsigned long HISTORY_INTERVAL = 60000;
 
-// ============================================================
-// WIFI SETTINGS
-// ============================================================
-
+// Wi-Fi connection timeout.
 const unsigned long WIFI_TIMEOUT = 20000;
 
+// Delay before Wi-Fi reconnection attempt.
 const unsigned long WIFI_RETRY_DELAY = 5000;
 
 // ============================================================
 // NTP
 // ============================================================
 
-const long GMT_OFFSET_SEC =
-  5 * 60 * 60;
+const long GMT_OFFSET_SEC = 5 * 60 * 60;
 
 const int DAYLIGHT_OFFSET_SEC = 0;
 
 // ============================================================
-// DHT SETTINGS
+// DHT22
 // ============================================================
 
 const int DHT_MAX_ATTEMPTS = 3;
 
+// DHT22 needs approximately 2 seconds between readings.
 const unsigned long DHT_RETRY_DELAY = 2200;
 
 // ============================================================
-// SOIL THRESHOLD
+// SOIL
 // ============================================================
 //
-// IMPORTANT:
+// Based on your tested digital soil sensor code:
 //
-// This is currently based on your observed readings.
-//
-// Current readings:
-//
-//   6
-//   7
-//   14
-//
-// We will calibrate this after hardware testing.
-//
-// If your sensor gives LOWER values when wet:
-//
-//   raw <= threshold -> WET
-//   raw >  threshold -> DRY
+// HIGH = DRY
+// LOW  = WET
 //
 // ============================================================
 
-const int SOIL_WET_THRESHOLD = 10;
+// ============================================================
+// LDR
+// ============================================================
+//
+// Based on your tested analog LDR code:
+//
+// LDR value > 500 = DARK
+// LDR value <= 500 = BRIGHT
+//
+// Change this later after observing real readings.
+// ============================================================
+
+const int LDR_DARK_THRESHOLD = 500;
+
+// ============================================================
+// GLOBAL TIMERS
+// ============================================================
+
+unsigned long previousMillis = 0;
+
+unsigned long lastHistoryMillis = 0;
 
 // ============================================================
 // FUNCTION DECLARATIONS
@@ -162,16 +160,16 @@ void initializeFirebase();
 
 void uploadDeviceInformation();
 
-int readSoilRaw();
-
-String getSoilStatus(
-  int soilRaw
-);
-
 int readLDR();
 
 String getLightStatus(
   int ldrValue
+);
+
+int readSoilDigital();
+
+String getSoilStatus(
+  int soilValue
 );
 
 bool readDHT22(
@@ -180,10 +178,10 @@ bool readDHT22(
 );
 
 bool uploadSensorData(
-  int soilRaw,
-  String soilStatus,
   int ldrValue,
   String lightStatus,
+  int soilValue,
+  String soilStatus,
   float temperature,
   float humidity,
   bool dhtSuccess,
@@ -191,6 +189,16 @@ bool uploadSensorData(
   String ipAddress,
   String macAddress,
   unsigned long uptimeSeconds,
+  unsigned long unixTimestamp
+);
+
+bool uploadHistory(
+  int ldrValue,
+  String lightStatus,
+  int soilValue,
+  String soilStatus,
+  float temperature,
+  float humidity,
   unsigned long unixTimestamp
 );
 
@@ -208,13 +216,14 @@ void setup() {
 
   Serial.println();
   Serial.println();
+
   Serial.println("========================================");
   Serial.println("     SMART PLANT CARE SYSTEM");
-  Serial.println("       ESP8266 FIRMWARE v1.0.9");
+  Serial.println("       ESP8266 FIRMWARE v1.2.0");
   Serial.println("========================================");
 
   // ==========================================================
-  // RESET DIAGNOSTICS
+  // RESET INFORMATION
   // ==========================================================
 
   printResetReason();
@@ -226,16 +235,19 @@ void setup() {
   Serial.println();
   Serial.println("Initializing sensors...");
 
+  // LDR AOUT -> A0
   pinMode(
-    SOIL_AOUT_PIN,
+    LDR_PIN,
     INPUT
   );
 
+  // Soil DOUT -> D7
   pinMode(
-    LDR_DOUT_PIN,
-    INPUT
+    SOIL_PIN,
+    INPUT_PULLUP
   );
 
+  // DHT22 DATA -> D5
   dht.begin();
 
   delay(1000);
@@ -250,46 +262,43 @@ void setup() {
   Serial.println("CURRENT SENSOR WIRING");
   Serial.println("----------------------------------------");
 
-  Serial.println(
-    "Soil AOUT -> A0"
-  );
+  Serial.println("LDR AOUT -> A0");
+  Serial.println("Soil DOUT -> D7");
+  Serial.println("DHT22 DATA -> D5");
 
-  Serial.println(
-    "Soil DOUT -> NC"
-  );
-
-  Serial.println(
-    "DHT22 DATA -> D2"
-  );
-
-  Serial.println(
-    "LDR DOUT -> D6"
-  );
-
-  Serial.println(
-    "LDR AOUT -> NC"
-  );
-
-  Serial.println(
-    "========================================"
-  );
+  Serial.println("----------------------------------------");
 
   // ==========================================================
-  // INITIAL SOIL TEST
+  // INITIAL SENSOR TEST
   // ==========================================================
 
   Serial.println();
+  Serial.println("Initial Sensor Test");
+  Serial.println("----------------------------------------");
+
+  int initialLDR =
+    readLDR();
+
+  int initialSoil =
+    readSoilDigital();
+
+  Serial.print("LDR A0 RAW: ");
+  Serial.println(initialLDR);
+
+  Serial.print("LDR STATUS: ");
   Serial.println(
-    "Initial Soil A0 Test"
+    getLightStatus(initialLDR)
   );
 
-  Serial.print(
-    "Soil A0 RAW: "
+  Serial.print("SOIL D7 RAW: ");
+  Serial.println(initialSoil);
+
+  Serial.print("SOIL STATUS: ");
+  Serial.println(
+    getSoilStatus(initialSoil)
   );
 
-  Serial.println(
-    readSoilRaw()
-  );
+  Serial.println("----------------------------------------");
 
   // ==========================================================
   // WIFI
@@ -300,7 +309,9 @@ void setup() {
     "Starting Wi-Fi connection..."
   );
 
-  if (connectToWiFi()) {
+  if (
+    connectToWiFi()
+  ) {
 
     Serial.println();
     Serial.println(
@@ -320,7 +331,7 @@ void setup() {
   }
 
   // ==========================================================
-  // TIME
+  // NTP
   // ==========================================================
 
   if (
@@ -372,6 +383,19 @@ void setup() {
   Serial.println("System Ready.");
   Serial.print("Firmware: ");
   Serial.println(FIRMWARE_VERSION);
+
+  Serial.print("Sensor interval: ");
+  Serial.print(
+    SENSOR_INTERVAL / 1000
+  );
+  Serial.println(" seconds");
+
+  Serial.print("History interval: ");
+  Serial.print(
+    HISTORY_INTERVAL / 1000
+  );
+  Serial.println(" seconds");
+
   Serial.println("========================================");
 }
 
@@ -382,7 +406,7 @@ void setup() {
 void loop() {
 
   // ==========================================================
-  // WIFI
+  // CHECK WIFI
   // ==========================================================
 
   checkWiFiConnection();
@@ -416,18 +440,6 @@ void loop() {
     currentMillis;
 
   // ==========================================================
-  // SOIL SENSOR
-  // ==========================================================
-
-  int soilRaw =
-    readSoilRaw();
-
-  String soilStatus =
-    getSoilStatus(
-      soilRaw
-    );
-
-  // ==========================================================
   // LDR
   // ==========================================================
 
@@ -437,6 +449,18 @@ void loop() {
   String lightStatus =
     getLightStatus(
       ldrValue
+    );
+
+  // ==========================================================
+  // SOIL
+  // ==========================================================
+
+  int soilValue =
+    readSoilDigital();
+
+  String soilStatus =
+    getSoilStatus(
+      soilValue
     );
 
   // ==========================================================
@@ -473,7 +497,7 @@ void loop() {
     getUnixTime();
 
   // ==========================================================
-  // SERIAL MONITOR
+  // SERIAL OUTPUT
   // ==========================================================
 
   Serial.println();
@@ -482,44 +506,24 @@ void loop() {
   Serial.println("========================================");
 
   // ----------------------------------------------------------
-  // SOIL
-  // ----------------------------------------------------------
-
-  Serial.print(
-    "Soil A0 RAW: "
-  );
-
-  Serial.println(
-    soilRaw
-  );
-
-  Serial.print(
-    "Soil Status: "
-  );
-
-  Serial.println(
-    soilStatus
-  );
-
-  // ----------------------------------------------------------
   // LDR
   // ----------------------------------------------------------
 
-  Serial.print(
-    "LDR D6 RAW: "
-  );
+  Serial.print("LDR ANALOG RAW: ");
+  Serial.println(ldrValue);
 
-  Serial.println(
-    ldrValue
-  );
+  Serial.print("LDR STATUS: ");
+  Serial.println(lightStatus);
 
-  Serial.print(
-    "LDR STATUS: "
-  );
+  // ----------------------------------------------------------
+  // SOIL
+  // ----------------------------------------------------------
 
-  Serial.println(
-    lightStatus
-  );
+  Serial.print("SOIL DIGITAL RAW: ");
+  Serial.println(soilValue);
+
+  Serial.print("SOIL STATUS: ");
+  Serial.println(soilStatus);
 
   // ----------------------------------------------------------
   // DHT22
@@ -527,36 +531,26 @@ void loop() {
 
   if (dhtSuccess) {
 
-    Serial.print(
-      "Temperature: "
-    );
-
-    Serial.print(
-      temperature,
-      2
-    );
-
-    Serial.println(
-      " °C"
-    );
-
-    Serial.print(
-      "Humidity: "
-    );
-
+    Serial.print("Humidity: ");
     Serial.print(
       humidity,
       2
     );
 
-    Serial.println(
-      " %"
+    Serial.println("%");
+
+    Serial.print("Temperature: ");
+    Serial.print(
+      temperature,
+      2
     );
+
+    Serial.println("°C");
 
   } else {
 
     Serial.println(
-      "DHT22 ERROR!"
+      "DHT22 ERROR - Temperature/Humidity unavailable."
     );
   }
 
@@ -564,70 +558,41 @@ void loop() {
   // DEVICE
   // ----------------------------------------------------------
 
-  Serial.print(
-    "Unix Timestamp: "
-  );
+  Serial.print("Unix Timestamp: ");
+  Serial.println(unixTimestamp);
 
-  Serial.println(
-    unixTimestamp
-  );
+  Serial.print("IP Address: ");
+  Serial.println(ipAddress);
 
-  Serial.print(
-    "IP Address: "
-  );
+  Serial.print("MAC Address: ");
+  Serial.println(macAddress);
 
-  Serial.println(
-    ipAddress
-  );
+  Serial.print("Wi-Fi RSSI: ");
+  Serial.print(wifiRSSI);
 
-  Serial.print(
-    "MAC Address: "
-  );
+  Serial.println(" dBm");
 
-  Serial.println(
-    macAddress
-  );
+  Serial.print("Uptime: ");
+  Serial.print(uptimeSeconds);
 
-  Serial.print(
-    "Wi-Fi RSSI: "
-  );
-
-  Serial.print(
-    wifiRSSI
-  );
-
-  Serial.println(
-    " dBm"
-  );
-
-  Serial.print(
-    "Uptime: "
-  );
-
-  Serial.print(
-    uptimeSeconds
-  );
-
-  Serial.println(
-    " seconds"
-  );
+  Serial.println(" seconds");
 
   // ==========================================================
-  // FIREBASE
+  // FIREBASE CURRENT DATA
   // ==========================================================
 
   Serial.println("----------------------------------------");
 
   Serial.println(
-    "Uploading data to Firebase..."
+    "Uploading current data to Firebase..."
   );
 
-  bool success =
+  bool currentDataSuccess =
     uploadSensorData(
-      soilRaw,
-      soilStatus,
       ldrValue,
       lightStatus,
+      soilValue,
+      soilStatus,
       temperature,
       humidity,
       dhtSuccess,
@@ -639,12 +604,56 @@ void loop() {
     );
 
   // ==========================================================
+  // HISTORY
+  // ==========================================================
+
+  bool historySuccess = true;
+
+  if (
+    currentMillis - lastHistoryMillis >=
+    HISTORY_INTERVAL
+  ) {
+
+    Serial.println("----------------------------------------");
+
+    Serial.println(
+      "Uploading history record..."
+    );
+
+    if (dhtSuccess) {
+
+      historySuccess =
+        uploadHistory(
+          ldrValue,
+          lightStatus,
+          soilValue,
+          soilStatus,
+          temperature,
+          humidity,
+          unixTimestamp
+        );
+
+    } else {
+
+      Serial.println(
+        "History skipped because DHT22 failed."
+      );
+    }
+
+    lastHistoryMillis =
+      currentMillis;
+  }
+
+  // ==========================================================
   // FINAL STATUS
   // ==========================================================
 
   Serial.println("----------------------------------------");
 
-  if (success) {
+  if (
+    currentDataSuccess &&
+    historySuccess
+  ) {
 
     Serial.println(
       ">>> FIREBASE SYNC SUCCESS <<<"
@@ -663,67 +672,13 @@ void loop() {
 }
 
 // ============================================================
-// READ SOIL
-// ============================================================
-
-int readSoilRaw() {
-
-  const int samples = 5;
-
-  long total = 0;
-
-  for (
-    int i = 0;
-    i < samples;
-    i++
-  ) {
-
-    total +=
-      analogRead(
-        SOIL_AOUT_PIN
-      );
-
-    delay(10);
-  }
-
-  return total / samples;
-}
-
-// ============================================================
-// SOIL STATUS
-// ============================================================
-
-String getSoilStatus(
-  int soilRaw
-) {
-
-  // Current YL-69 assumption:
-  //
-  // Lower ADC value = wetter
-  // Higher ADC value = drier
-  //
-
-  if (
-    soilRaw <=
-    SOIL_WET_THRESHOLD
-  ) {
-
-    return "WET (Soil is fine)";
-
-  } else {
-
-    return "DRY (Needs Water!)";
-  }
-}
-
-// ============================================================
 // READ LDR
 // ============================================================
 
 int readLDR() {
 
-  return digitalRead(
-    LDR_DOUT_PIN
+  return analogRead(
+    LDR_PIN
   );
 }
 
@@ -736,7 +691,7 @@ String getLightStatus(
 ) {
 
   if (
-    ldrValue == HIGH
+    ldrValue > LDR_DARK_THRESHOLD
   ) {
 
     return "DARK";
@@ -744,6 +699,44 @@ String getLightStatus(
   } else {
 
     return "BRIGHT";
+  }
+}
+
+// ============================================================
+// READ SOIL DIGITAL
+// ============================================================
+
+int readSoilDigital() {
+
+  return digitalRead(
+    SOIL_PIN
+  );
+}
+
+// ============================================================
+// SOIL STATUS
+// ============================================================
+//
+// Based on your tested code:
+//
+// HIGH = DRY
+// LOW  = WET
+//
+// ============================================================
+
+String getSoilStatus(
+  int soilValue
+) {
+
+  if (
+    soilValue == HIGH
+  ) {
+
+    return "DRY (Needs Water!)";
+
+  } else {
+
+    return "WET (Soil is fine)";
   }
 }
 
@@ -766,19 +759,15 @@ bool readDHT22(
       "DHT22 reading attempt "
     );
 
-    Serial.print(
-      attempt
-    );
+    Serial.print(attempt);
 
-    Serial.println(
-      "..."
-    );
-
-    temperature =
-      dht.readTemperature();
+    Serial.println("...");
 
     humidity =
       dht.readHumidity();
+
+    temperature =
+      dht.readTemperature();
 
     if (
       !isnan(temperature) &&
@@ -807,7 +796,7 @@ bool readDHT22(
 }
 
 // ============================================================
-// WIFI
+// WIFI CONNECTION
 // ============================================================
 
 bool connectToWiFi() {
@@ -817,13 +806,8 @@ bool connectToWiFi() {
   Serial.println("           WI-FI CONNECTION");
   Serial.println("========================================");
 
-  Serial.print(
-    "SSID: "
-  );
-
-  Serial.println(
-    WIFI_SSID
-  );
+  Serial.print("SSID: ");
+  Serial.println(WIFI_SSID);
 
   WiFi.mode(
     WIFI_STA
@@ -833,6 +817,16 @@ bool connectToWiFi() {
 
   delay(300);
 
+  // Disable Wi-Fi sleep.
+  // Helps maintain stable HTTPS connections.
+  WiFi.setSleepMode(
+    WIFI_NONE_SLEEP
+  );
+
+  WiFi.setAutoReconnect(
+    true
+  );
+
   WiFi.begin(
     WIFI_SSID,
     WIFI_PASSWORD
@@ -841,9 +835,7 @@ bool connectToWiFi() {
   unsigned long startTime =
     millis();
 
-  Serial.print(
-    "Connecting"
-  );
+  Serial.print("Connecting");
 
   while (
     WiFi.status() !=
@@ -854,9 +846,7 @@ bool connectToWiFi() {
 
     delay(500);
 
-    Serial.print(
-      "."
-    );
+    Serial.print(".");
   }
 
   Serial.println();
@@ -870,33 +860,22 @@ bool connectToWiFi() {
       "Wi-Fi Connected!"
     );
 
-    Serial.print(
-      "IP Address: "
-    );
-
+    Serial.print("IP Address: ");
     Serial.println(
       WiFi.localIP()
     );
 
-    Serial.print(
-      "MAC Address: "
-    );
-
+    Serial.print("MAC Address: ");
     Serial.println(
       WiFi.macAddress()
     );
 
-    Serial.print(
-      "Wi-Fi RSSI: "
-    );
-
+    Serial.print("Wi-Fi RSSI: ");
     Serial.print(
       WiFi.RSSI()
     );
 
-    Serial.println(
-      " dBm"
-    );
+    Serial.println(" dBm");
 
     Serial.println(
       "========================================"
@@ -968,7 +947,7 @@ void checkWiFiConnection() {
 }
 
 // ============================================================
-// FIREBASE
+// FIREBASE INITIALIZATION
 // ============================================================
 
 void initializeFirebase() {
@@ -984,6 +963,7 @@ void initializeFirebase() {
   config.database_url =
     FIREBASE_HOST;
 
+  // Current Firebase project configuration.
   config.signer.test_mode =
     true;
 
@@ -1017,14 +997,19 @@ void initializeFirebase() {
 }
 
 // ============================================================
-// UPLOAD SENSOR DATA
+// UPLOAD CURRENT DATA
+// ============================================================
+//
+// ONE Firebase updateNode() request.
+//
+// This is the major improvement over the previous firmware.
 // ============================================================
 
 bool uploadSensorData(
-  int soilRaw,
-  String soilStatus,
   int ldrValue,
   String lightStatus,
+  int soilValue,
+  String soilStatus,
   float temperature,
   float humidity,
   bool dhtSuccess,
@@ -1035,428 +1020,238 @@ bool uploadSensorData(
   unsigned long unixTimestamp
 ) {
 
-  bool success = true;
-
-  // ==========================================================
-  // SOIL RAW
-  // ==========================================================
-
   if (
-    Firebase.setInt(
-      firebaseData,
-      "/SmartPlant/SoilMoistureRaw",
-      soilRaw
-    )
+    WiFi.status() !=
+    WL_CONNECTED
   ) {
 
     Serial.println(
-      "✓ Soil raw value uploaded."
+      "✗ Firebase upload skipped: Wi-Fi disconnected."
     );
 
-  } else {
-
-    Serial.print(
-      "✗ Soil raw upload failed: "
-    );
-
-    Serial.println(
-      firebaseData.errorReason()
-    );
-
-    success = false;
+    return false;
   }
 
-  // ==========================================================
-  // SOIL STATUS
-  // ==========================================================
-
-  if (
-    Firebase.setString(
-      firebaseData,
-      "/SmartPlant/SoilStatus",
-      soilStatus
-    )
-  ) {
-
-    Serial.println(
-      "✓ Soil status uploaded."
-    );
-
-  } else {
-
-    Serial.print(
-      "✗ Soil status upload failed: "
-    );
-
-    Serial.println(
-      firebaseData.errorReason()
-    );
-
-    success = false;
-  }
+  FirebaseJson json;
 
   // ==========================================================
   // LDR
   // ==========================================================
 
-  if (
-    Firebase.setInt(
-      firebaseData,
-      "/SmartPlant/LightIntensity",
-      ldrValue
-    )
-  ) {
+  json.set(
+    "LightIntensity",
+    ldrValue
+  );
 
-    Serial.println(
-      "✓ Light value uploaded."
-    );
-
-  } else {
-
-    Serial.print(
-      "✗ Light upload failed: "
-    );
-
-    Serial.println(
-      firebaseData.errorReason()
-    );
-
-    success = false;
-  }
+  json.set(
+    "LightStatus",
+    lightStatus
+  );
 
   // ==========================================================
-  // LIGHT STATUS
+  // SOIL
   // ==========================================================
 
-  if (
-    Firebase.setString(
-      firebaseData,
-      "/SmartPlant/LightStatus",
-      lightStatus
-    )
-  ) {
+  json.set(
+    "SoilMoistureRaw",
+    soilValue
+  );
 
-    Serial.println(
-      "✓ Light status uploaded."
-    );
-
-  } else {
-
-    Serial.print(
-      "✗ Light status upload failed: "
-    );
-
-    Serial.println(
-      firebaseData.errorReason()
-    );
-
-    success = false;
-  }
+  json.set(
+    "SoilStatus",
+    soilStatus
+  );
 
   // ==========================================================
-  // TEMPERATURE
+  // DHT22
   // ==========================================================
 
   if (dhtSuccess) {
 
-    if (
-      Firebase.setFloat(
-        firebaseData,
-        "/SmartPlant/Temperature",
-        temperature
-      )
-    ) {
-
-      Serial.println(
-        "✓ Temperature uploaded."
-      );
-
-    } else {
-
-      Serial.print(
-        "✗ Temperature upload failed: "
-      );
-
-      Serial.println(
-        firebaseData.errorReason()
-      );
-
-      success = false;
-    }
-
-  } else {
-
-    Serial.println(
-      "⚠ Temperature skipped."
+    json.set(
+      "Temperature",
+      temperature
     );
-  }
 
-  // ==========================================================
-  // HUMIDITY
-  // ==========================================================
-
-  if (dhtSuccess) {
-
-    if (
-      Firebase.setFloat(
-        firebaseData,
-        "/SmartPlant/Humidity",
-        humidity
-      )
-    ) {
-
-      Serial.println(
-        "✓ Humidity uploaded."
-      );
-
-    } else {
-
-      Serial.print(
-        "✗ Humidity upload failed: "
-      );
-
-      Serial.println(
-        firebaseData.errorReason()
-      );
-
-      success = false;
-    }
-
-  } else {
-
-    Serial.println(
-      "⚠ Humidity skipped."
-    );
-  }
-
-  // ==========================================================
-  // DEVICE STATUS
-  // ==========================================================
-
-  if (
-    Firebase.setString(
-      firebaseData,
-      "/SmartPlant/Device/Status",
-      "Connected"
-    )
-  ) {
-
-    Serial.println(
-      "✓ Device status uploaded."
+    json.set(
+      "Humidity",
+      humidity
     );
 
   } else {
 
-    success = false;
-  }
-
-  // ==========================================================
-  // IP
-  // ==========================================================
-
-  if (
-    Firebase.setString(
-      firebaseData,
-      "/SmartPlant/Device/IPAddress",
-      ipAddress
-    )
-  ) {
-
     Serial.println(
-      "✓ IP address uploaded."
+      "⚠ DHT22 data not included in Firebase update."
     );
-
-  } else {
-
-    success = false;
   }
 
   // ==========================================================
-  // MAC
+  // DEVICE
   // ==========================================================
 
-  if (
-    Firebase.setString(
-      firebaseData,
-      "/SmartPlant/Device/MACAddress",
-      macAddress
-    )
-  ) {
+  json.set(
+    "Device/Status",
+    "Connected"
+  );
 
-    Serial.println(
-      "✓ MAC address uploaded."
-    );
+  json.set(
+    "Device/IPAddress",
+    ipAddress
+  );
 
-  } else {
+  json.set(
+    "Device/MACAddress",
+    macAddress
+  );
 
-    success = false;
-  }
+  json.set(
+    "Device/WiFiRSSI",
+    wifiRSSI
+  );
 
-  // ==========================================================
-  // RSSI
-  // ==========================================================
+  json.set(
+    "Device/FirmwareVersion",
+    FIRMWARE_VERSION
+  );
 
-  if (
-    Firebase.setInt(
-      firebaseData,
-      "/SmartPlant/Device/WiFiRSSI",
-      wifiRSSI
-    )
-  ) {
-
-    Serial.println(
-      "✓ Wi-Fi RSSI uploaded."
-    );
-
-  } else {
-
-    success = false;
-  }
-
-  // ==========================================================
-  // FIRMWARE
-  // ==========================================================
-
-  if (
-    Firebase.setString(
-      firebaseData,
-      "/SmartPlant/Device/FirmwareVersion",
-      FIRMWARE_VERSION
-    )
-  ) {
-
-    Serial.println(
-      "✓ Firmware version uploaded."
-    );
-
-  } else {
-
-    success = false;
-  }
-
-  // ==========================================================
-  // UPTIME
-  // ==========================================================
-
-  if (
-    Firebase.setInt(
-      firebaseData,
-      "/SmartPlant/Device/UptimeSeconds",
-      uptimeSeconds
-    )
-  ) {
-
-    Serial.println(
-      "✓ Uptime uploaded."
-    );
-
-  } else {
-
-    success = false;
-  }
-
-  // ==========================================================
-  // LAST UPDATE
-  // ==========================================================
+  json.set(
+    "Device/UptimeSeconds",
+    uptimeSeconds
+  );
 
   if (
     unixTimestamp > 0
   ) {
 
-    if (
-      Firebase.setInt(
-        firebaseData,
-        "/SmartPlant/Device/LastUpdateUnix",
-        unixTimestamp
-      )
-    ) {
-
-      Serial.println(
-        "✓ Last update uploaded."
-      );
-
-    } else {
-
-      success = false;
-    }
-  }
-
-  // ==========================================================
-  // HISTORY
-  // ==========================================================
-
-  if (dhtSuccess) {
-
-    FirebaseJson logData;
-
-    logData.set(
-      "Temperature",
-      temperature
-    );
-
-    logData.set(
-      "Humidity",
-      humidity
-    );
-
-    logData.set(
-      "LightIntensity",
-      ldrValue
-    );
-
-    logData.set(
-      "LightStatus",
-      lightStatus
-    );
-
-    logData.set(
-      "SoilMoistureRaw",
-      soilRaw
-    );
-
-    logData.set(
-      "SoilStatus",
-      soilStatus
-    );
-
-    logData.set(
-      "Timestamp",
+    json.set(
+      "Device/LastUpdateUnix",
       unixTimestamp
     );
-
-    if (
-      Firebase.pushJSON(
-        firebaseData,
-        "/SmartPlant/Logs",
-        logData
-      )
-    ) {
-
-      Serial.println(
-        "✓ COMPLETE sensor log uploaded."
-      );
-
-    } else {
-
-      Serial.print(
-        "✗ Sensor log upload failed: "
-      );
-
-      Serial.println(
-        firebaseData.errorReason()
-      );
-
-      success = false;
-    }
-
-  } else {
-
-    Serial.println(
-      "⚠ HISTORY LOG SKIPPED."
-    );
   }
 
-  return success;
+  // ==========================================================
+  // ONE FIREBASE REQUEST
+  // ==========================================================
+
+  Serial.println(
+    "Sending ONE Firebase update..."
+  );
+
+  bool result =
+    Firebase.updateNode(
+      firebaseData,
+      "/SmartPlant",
+      json
+    );
+
+  if (result) {
+
+    Serial.println(
+      "✓ Current sensor/device data uploaded."
+    );
+
+    return true;
+  }
+
+  Serial.print(
+    "✗ Firebase update failed: "
+  );
+
+  Serial.println(
+    firebaseData.errorReason()
+  );
+
+  return false;
+}
+
+// ============================================================
+// HISTORY
+// ============================================================
+
+bool uploadHistory(
+  int ldrValue,
+  String lightStatus,
+  int soilValue,
+  String soilStatus,
+  float temperature,
+  float humidity,
+  unsigned long unixTimestamp
+) {
+
+  if (
+    WiFi.status() !=
+    WL_CONNECTED
+  ) {
+
+    Serial.println(
+      "✗ History upload skipped: Wi-Fi disconnected."
+    );
+
+    return false;
+  }
+
+  FirebaseJson logData;
+
+  logData.set(
+    "Temperature",
+    temperature
+  );
+
+  logData.set(
+    "Humidity",
+    humidity
+  );
+
+  logData.set(
+    "LightIntensity",
+    ldrValue
+  );
+
+  logData.set(
+    "LightStatus",
+    lightStatus
+  );
+
+  logData.set(
+    "SoilMoistureRaw",
+    soilValue
+  );
+
+  logData.set(
+    "SoilStatus",
+    soilStatus
+  );
+
+  logData.set(
+    "Timestamp",
+    unixTimestamp
+  );
+
+  bool result =
+    Firebase.pushJSON(
+      firebaseData,
+      "/SmartPlant/Logs",
+      logData
+    );
+
+  if (result) {
+
+    Serial.println(
+      "✓ History record uploaded."
+    );
+
+    return true;
+  }
+
+  Serial.print(
+    "✗ History upload failed: "
+  );
+
+  Serial.println(
+    firebaseData.errorReason()
+  );
+
+  return false;
 }
 
 // ============================================================
@@ -1489,9 +1284,7 @@ void initializeTime() {
 
     delay(500);
 
-    Serial.print(
-      "."
-    );
+    Serial.print(".");
 
     now =
       time(nullptr);
@@ -1580,39 +1373,35 @@ void uploadDeviceInformation() {
     "Uploading device information..."
   );
 
-  Firebase.setString(
-    firebaseData,
-    "/SmartPlant/Device/Status",
+  FirebaseJson deviceJson;
+
+  deviceJson.set(
+    "Status",
     "Connected"
   );
 
-  Firebase.setString(
-    firebaseData,
-    "/SmartPlant/Device/IPAddress",
+  deviceJson.set(
+    "IPAddress",
     ipAddress
   );
 
-  Firebase.setString(
-    firebaseData,
-    "/SmartPlant/Device/MACAddress",
+  deviceJson.set(
+    "MACAddress",
     macAddress
   );
 
-  Firebase.setInt(
-    firebaseData,
-    "/SmartPlant/Device/WiFiRSSI",
+  deviceJson.set(
+    "WiFiRSSI",
     wifiRSSI
   );
 
-  Firebase.setString(
-    firebaseData,
-    "/SmartPlant/Device/FirmwareVersion",
+  deviceJson.set(
+    "FirmwareVersion",
     FIRMWARE_VERSION
   );
 
-  Firebase.setInt(
-    firebaseData,
-    "/SmartPlant/Device/UptimeSeconds",
+  deviceJson.set(
+    "UptimeSeconds",
     uptimeSeconds
   );
 
@@ -1620,16 +1409,35 @@ void uploadDeviceInformation() {
     unixTimestamp > 0
   ) {
 
-    Firebase.setInt(
-      firebaseData,
-      "/SmartPlant/Device/LastUpdateUnix",
+    deviceJson.set(
+      "LastUpdateUnix",
       unixTimestamp
     );
   }
 
-  Serial.println(
-    "Device information upload completed."
-  );
+  bool result =
+    Firebase.updateNode(
+      firebaseData,
+      "/SmartPlant/Device",
+      deviceJson
+    );
+
+  if (result) {
+
+    Serial.println(
+      "✓ Device information uploaded."
+    );
+
+  } else {
+
+    Serial.print(
+      "✗ Device information upload failed: "
+    );
+
+    Serial.println(
+      firebaseData.errorReason()
+    );
+  }
 }
 
 // ============================================================
