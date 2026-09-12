@@ -12,6 +12,7 @@ import 'package:smart_plant_care/services/firestore_service.dart';
 /// - Request notification permission
 /// - Obtain FCM device token
 /// - Save FCM token to the logged-in user's Firestore profile
+/// - Save token automatically after login
 /// - Listen for token changes
 /// - Handle foreground messages
 /// - Register background message handler
@@ -28,9 +29,9 @@ class NotificationService {
   static final FirestoreService _firestoreService =
       FirestoreService();
 
-  // ============================================================
-  // BACKGROUND MESSAGE HANDLER
-  // ============================================================
+  static bool _initialized = false;
+
+  static String? _currentToken;
 
   @pragma('vm:entry-point')
   static Future<void> firebaseMessagingBackgroundHandler(
@@ -49,15 +50,6 @@ class NotificationService {
     );
   }
 
-  // ============================================================
-  // SAVE FCM TOKEN
-  // ============================================================
-
-  /// Saves the FCM token to the currently authenticated user's
-  /// Firestore profile.
-  ///
-  /// Firestore path:
-  /// users/{uid}/fcmToken
   static Future<void> _saveTokenToFirestore(
     String token,
   ) async {
@@ -67,7 +59,7 @@ class NotificationService {
       if (user == null) {
         debugPrint(
           'FCM TOKEN: No authenticated user. '
-          'Token was not saved.',
+          'Token will be saved after login.',
         );
         return;
       }
@@ -76,7 +68,8 @@ class NotificationService {
         user.uid,
         {
           'fcmToken': token,
-          'fcmTokenUpdatedAt': DateTime.now().toIso8601String(),
+          'fcmTokenUpdatedAt':
+              DateTime.now().toIso8601String(),
         },
       );
 
@@ -94,15 +87,34 @@ class NotificationService {
     }
   }
 
-  // ============================================================
-  // INITIALIZE FCM
-  // ============================================================
+  static Future<void> _saveCurrentTokenForUser(
+    User? user,
+  ) async {
+    if (user == null) {
+      debugPrint(
+        'FCM AUTH: No authenticated user.',
+      );
+      return;
+    }
+
+    final String? token = _currentToken;
+
+    if (token == null) {
+      debugPrint(
+        'FCM AUTH: Token not available yet.',
+      );
+      return;
+    }
+
+    debugPrint(
+      'FCM AUTH: User authenticated. '
+      'Saving FCM token...',
+    );
+
+    await _saveTokenToFirestore(token);
+  }
 
   static Future<void> initialize() async {
-    // ----------------------------------------------------------
-    // Skip FCM initialization on Flutter Web
-    // ----------------------------------------------------------
-
     if (kIsWeb) {
       debugPrint(
         'FCM initialization skipped on web.',
@@ -110,17 +122,26 @@ class NotificationService {
       return;
     }
 
-    // ----------------------------------------------------------
-    // Register background message handler
-    // ----------------------------------------------------------
+    if (_initialized) {
+      debugPrint(
+        'FCM initialization already completed.',
+      );
+      return;
+    }
+
+    _initialized = true;
+
+    // ------------------------------------------------------------
+    // Background message handler
+    // ------------------------------------------------------------
 
     FirebaseMessaging.onBackgroundMessage(
       firebaseMessagingBackgroundHandler,
     );
 
-    // ----------------------------------------------------------
-    // Request notification permission
-    // ----------------------------------------------------------
+    // ------------------------------------------------------------
+    // Notification permission
+    // ------------------------------------------------------------
 
     final NotificationSettings settings =
         await _messaging.requestPermission(
@@ -138,15 +159,17 @@ class NotificationService {
       '${settings.authorizationStatus}',
     );
 
-    // ----------------------------------------------------------
+    // ------------------------------------------------------------
     // Get FCM token
-    // ----------------------------------------------------------
+    // ------------------------------------------------------------
 
     try {
       final String? token =
           await _messaging.getToken();
 
       if (token != null) {
+        _currentToken = token;
+
         debugPrint(
           '========================================',
         );
@@ -161,7 +184,7 @@ class NotificationService {
           '========================================',
         );
 
-        // Save token to Firestore
+        // Save immediately if user is already logged in.
         await _saveTokenToFirestore(token);
       } else {
         debugPrint(
@@ -174,9 +197,35 @@ class NotificationService {
       );
     }
 
-    // ----------------------------------------------------------
-    // Listen for token refresh
-    // ----------------------------------------------------------
+    // ------------------------------------------------------------
+    // Authentication listener
+    // ------------------------------------------------------------
+
+    _auth.authStateChanges().listen(
+      (User? user) async {
+        if (user != null) {
+          debugPrint(
+            'FCM AUTH: Logged-in user detected: '
+            '${user.uid}',
+          );
+
+          await _saveCurrentTokenForUser(user);
+        } else {
+          debugPrint(
+            'FCM AUTH: User signed out.',
+          );
+        }
+      },
+      onError: (Object error) {
+        debugPrint(
+          'FCM AUTH LISTENER ERROR: $error',
+        );
+      },
+    );
+
+    // ------------------------------------------------------------
+    // FCM token refresh
+    // ------------------------------------------------------------
 
     _messaging.onTokenRefresh.listen(
       (String newToken) async {
@@ -186,7 +235,8 @@ class NotificationService {
 
         debugPrint(newToken);
 
-        // Save refreshed token to Firestore
+        _currentToken = newToken;
+
         await _saveTokenToFirestore(newToken);
       },
       onError: (Object error) {
@@ -196,9 +246,9 @@ class NotificationService {
       },
     );
 
-    // ----------------------------------------------------------
+    // ------------------------------------------------------------
     // Foreground messages
-    // ----------------------------------------------------------
+    // ------------------------------------------------------------
 
     FirebaseMessaging.onMessage.listen(
       (RemoteMessage message) {
@@ -232,9 +282,9 @@ class NotificationService {
       },
     );
 
-    // ----------------------------------------------------------
-    // App opened from background notification
-    // ----------------------------------------------------------
+    // ------------------------------------------------------------
+    // Notification tap - background
+    // ------------------------------------------------------------
 
     FirebaseMessaging.onMessageOpenedApp.listen(
       (RemoteMessage message) {
@@ -252,9 +302,9 @@ class NotificationService {
       },
     );
 
-    // ----------------------------------------------------------
-    // App opened from terminated state
-    // ----------------------------------------------------------
+    // ------------------------------------------------------------
+    // Notification tap - terminated app
+    // ------------------------------------------------------------
 
     final RemoteMessage? initialMessage =
         await _messaging.getInitialMessage();
