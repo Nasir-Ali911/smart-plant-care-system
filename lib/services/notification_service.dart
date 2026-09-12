@@ -22,9 +22,9 @@ import 'package:smart_plant_care/services/firestore_service.dart';
 class NotificationService {
   NotificationService._();
 
-  // ------------------------------------------------------------
+  // ============================================================
   // Firebase services
-  // ------------------------------------------------------------
+  // ============================================================
 
   static final FirebaseMessaging _messaging =
       FirebaseMessaging.instance;
@@ -35,9 +35,9 @@ class NotificationService {
   static final FirestoreService _firestoreService =
       FirestoreService();
 
-  // ------------------------------------------------------------
+  // ============================================================
   // Local notifications
-  // ------------------------------------------------------------
+  // ============================================================
 
   static final FlutterLocalNotificationsPlugin
       _localNotifications =
@@ -54,17 +54,17 @@ class NotificationService {
     playSound: true,
   );
 
-  // ------------------------------------------------------------
+  // ============================================================
   // State
-  // ------------------------------------------------------------
+  // ============================================================
 
   static bool _initialized = false;
 
   static String? _currentToken;
 
-  // ------------------------------------------------------------
+  // ============================================================
   // Background FCM handler
-  // ------------------------------------------------------------
+  // ============================================================
 
   @pragma('vm:entry-point')
   static Future<void> firebaseMessagingBackgroundHandler(
@@ -83,9 +83,9 @@ class NotificationService {
     );
   }
 
-  // ------------------------------------------------------------
+  // ============================================================
   // Initialize local notifications
-  // ------------------------------------------------------------
+  // ============================================================
 
   static Future<void> _initializeLocalNotifications() async {
     const AndroidInitializationSettings
@@ -100,7 +100,7 @@ class NotificationService {
     );
 
     await _localNotifications.initialize(
-      initializationSettings,
+      settings: initializationSettings,
       onDidReceiveNotificationResponse:
           _onLocalNotificationTap,
     );
@@ -122,9 +122,9 @@ class NotificationService {
     );
   }
 
-  // ------------------------------------------------------------
+  // ============================================================
   // Local notification tap
-  // ------------------------------------------------------------
+  // ============================================================
 
   static void _onLocalNotificationTap(
     NotificationResponse response,
@@ -140,9 +140,9 @@ class NotificationService {
     // Navigation can be added here later.
   }
 
-  // ------------------------------------------------------------
+  // ============================================================
   // Show foreground notification
-  // ------------------------------------------------------------
+  // ============================================================
 
   static Future<void> _showForegroundNotification(
     RemoteMessage message,
@@ -170,7 +170,7 @@ class NotificationService {
       icon: '@mipmap/ic_launcher',
     );
 
-    const NotificationDetails notificationDetails =
+    final NotificationDetails notificationDetails =
         NotificationDetails(
       android: androidNotificationDetails,
     );
@@ -179,10 +179,10 @@ class NotificationService {
         DateTime.now().millisecondsSinceEpoch ~/ 1000;
 
     await _localNotifications.show(
-      notificationId,
-      title,
-      body,
-      notificationDetails,
+      id: notificationId,
+      title: title,
+      body: body,
+      notificationDetails: notificationDetails,
       payload: message.messageId,
     );
 
@@ -191,9 +191,9 @@ class NotificationService {
     );
   }
 
-  // ------------------------------------------------------------
+  // ============================================================
   // Save FCM token to Firestore
-  // ------------------------------------------------------------
+  // ============================================================
 
   static Future<void> _saveTokenToFirestore(
     String token,
@@ -232,9 +232,9 @@ class NotificationService {
     }
   }
 
-  // ------------------------------------------------------------
+  // ============================================================
   // Save current token after authentication
-  // ------------------------------------------------------------
+  // ============================================================
 
   static Future<void> _saveCurrentTokenForUser(
     User? user,
@@ -263,9 +263,9 @@ class NotificationService {
     await _saveTokenToFirestore(token);
   }
 
-  // ------------------------------------------------------------
+  // ============================================================
   // Main initialization
-  // ------------------------------------------------------------
+  // ============================================================
 
   static Future<void> initialize() async {
     if (kIsWeb) {
@@ -284,23 +284,23 @@ class NotificationService {
 
     _initialized = true;
 
-    // ----------------------------------------------------------
+    // ------------------------------------------------------------
     // Background message handler
-    // ----------------------------------------------------------
+    // ------------------------------------------------------------
 
     FirebaseMessaging.onBackgroundMessage(
       firebaseMessagingBackgroundHandler,
     );
 
-    // ----------------------------------------------------------
+    // ------------------------------------------------------------
     // Local notifications
-    // ----------------------------------------------------------
+    // ------------------------------------------------------------
 
     await _initializeLocalNotifications();
 
-    // ----------------------------------------------------------
+    // ------------------------------------------------------------
     // FCM notification permission
-    // ----------------------------------------------------------
+    // ------------------------------------------------------------
 
     final NotificationSettings settings =
         await _messaging.requestPermission(
@@ -318,9 +318,9 @@ class NotificationService {
       '${settings.authorizationStatus}',
     );
 
-    // ----------------------------------------------------------
+    // ------------------------------------------------------------
     // Get FCM token
-    // ----------------------------------------------------------
+    // ------------------------------------------------------------
 
     try {
       final String? token =
@@ -343,6 +343,7 @@ class NotificationService {
           '========================================',
         );
 
+        // Save immediately if user is already logged in.
         await _saveTokenToFirestore(token);
       } else {
         debugPrint(
@@ -355,9 +356,9 @@ class NotificationService {
       );
     }
 
-    // ----------------------------------------------------------
+    // ------------------------------------------------------------
     // Authentication listener
-    // ----------------------------------------------------------
+    // ------------------------------------------------------------
 
     _auth.authStateChanges().listen(
       (User? user) async {
@@ -381,9 +382,9 @@ class NotificationService {
       },
     );
 
-    // ----------------------------------------------------------
+    // ------------------------------------------------------------
     // FCM token refresh
-    // ----------------------------------------------------------
+    // ------------------------------------------------------------
 
     _messaging.onTokenRefresh.listen(
       (String newToken) async {
@@ -404,9 +405,9 @@ class NotificationService {
       },
     );
 
-    // ----------------------------------------------------------
+    // ------------------------------------------------------------
     // Foreground messages
-    // ----------------------------------------------------------
+    // ------------------------------------------------------------
 
     FirebaseMessaging.onMessage.listen(
       (RemoteMessage message) async {
@@ -443,9 +444,9 @@ class NotificationService {
       },
     );
 
-    // ----------------------------------------------------------
+    // ------------------------------------------------------------
     // Notification tap - background
-    // ----------------------------------------------------------
+    // ------------------------------------------------------------
 
     FirebaseMessaging.onMessageOpenedApp.listen(
       (RemoteMessage message) {
@@ -463,9 +464,9 @@ class NotificationService {
       },
     );
 
-    // ----------------------------------------------------------
+    // ------------------------------------------------------------
     // Notification tap - terminated app
-    // ----------------------------------------------------------
+    // ------------------------------------------------------------
 
     final RemoteMessage? initialMessage =
         await _messaging.getInitialMessage();
