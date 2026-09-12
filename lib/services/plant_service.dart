@@ -36,48 +36,133 @@ class PlantService {
   }
 
   // ============================================================
-  // UPLOAD IMAGE TO CLOUDINARY
+  // MANUAL PUMP CONTROL
+  // ============================================================
+
+  Future<void> triggerManualWatering(bool turnOn) async {
+    final DatabaseReference controlRef =
+        FirebaseDatabase.instance.ref(
+      'SmartPlant/Control',
+    );
+
+    await controlRef.set({
+      'PumpManual': turnOn ? 'ON' : 'OFF',
+      'Timestamp': ServerValue.timestamp,
+    });
+  }
+
+  // ============================================================
+  // HISTORICAL SENSOR LOGS
+  // ============================================================
+
+  Future<List<Map<String, dynamic>>> fetchRecentLogs({
+    int limit = 50,
+  }) async {
+    final DatabaseReference logsRef =
+        _dbRef.child('SmartPlant/Logs');
+
+    final DatabaseEvent event = await logsRef
+        .orderByChild('Timestamp')
+        .limitToLast(limit)
+        .once();
+
+    final Object? value = event.snapshot.value;
+
+    if (value == null) {
+      return [];
+    }
+
+    if (value is! Map) {
+      return [];
+    }
+
+    final Map<dynamic, dynamic> rawLogs =
+        Map<dynamic, dynamic>.from(value);
+
+    final List<Map<String, dynamic>> logs = [];
+
+    for (final entry in rawLogs.entries) {
+      final dynamic rawValue = entry.value;
+
+      if (rawValue is! Map) {
+        continue;
+      }
+
+      final Map<dynamic, dynamic> rawLog =
+          Map<dynamic, dynamic>.from(rawValue);
+
+      final Map<String, dynamic> log = {};
+
+      rawLog.forEach((key, value) {
+        log[key.toString()] = value;
+      });
+
+      logs.add(log);
+    }
+
+    // Oldest → newest
+    logs.sort((a, b) {
+      final int timestampA =
+          _toInt(a['Timestamp']);
+
+      final int timestampB =
+          _toInt(b['Timestamp']);
+
+      return timestampA.compareTo(timestampB);
+    });
+
+    return logs;
+  }
+
+  // ============================================================
+  // SENSOR VALUE HELPERS
+  // ============================================================
+
+  double _toDouble(dynamic value) {
+    if (value is num) {
+      return value.toDouble();
+    }
+
+    return double.tryParse(
+          value?.toString() ?? '',
+        ) ??
+        0.0;
+  }
+
+  int _toInt(dynamic value) {
+    if (value is num) {
+      return value.toInt();
+    }
+
+    return int.tryParse(
+          value?.toString() ?? '',
+        ) ??
+        0;
+  }
+
+  // ============================================================
+  // CLOUDINARY IMAGE UPLOAD
   // ============================================================
 
   Future<String?> _uploadImageToCloudinary(
     XFile imageFile,
   ) async {
     try {
-      // ----------------------------------------------------------
-      // CLOUDINARY UPLOAD URL
-      // ----------------------------------------------------------
-
       final Uri uploadUrl = Uri.parse(
         'https://api.cloudinary.com/v1_1/'
         '$_cloudName/image/upload',
       );
-
-      // ----------------------------------------------------------
-      // CREATE MULTIPART REQUEST
-      // ----------------------------------------------------------
 
       final request = http.MultipartRequest(
         'POST',
         uploadUrl,
       );
 
-      // ----------------------------------------------------------
-      // UNSIGNED UPLOAD PRESET
-      // ----------------------------------------------------------
-
       request.fields['upload_preset'] =
           _uploadPreset;
 
-      // ----------------------------------------------------------
-      // READ IMAGE
-      // ----------------------------------------------------------
-
       final imageBytes =
           await imageFile.readAsBytes();
-
-      // ----------------------------------------------------------
-      // ADD IMAGE TO REQUEST
-      // ----------------------------------------------------------
 
       request.files.add(
         http.MultipartFile.fromBytes(
@@ -87,10 +172,6 @@ class PlantService {
         ),
       );
 
-      // ----------------------------------------------------------
-      // SEND REQUEST
-      // ----------------------------------------------------------
-
       final streamedResponse =
           await request.send();
 
@@ -98,10 +179,6 @@ class PlantService {
           await http.Response.fromStream(
         streamedResponse,
       );
-
-      // ----------------------------------------------------------
-      // SUCCESS
-      // ----------------------------------------------------------
 
       if (response.statusCode == 200) {
         final Map<String, dynamic> data =
@@ -119,10 +196,6 @@ class PlantService {
 
         return secureUrl;
       }
-
-      // ----------------------------------------------------------
-      // CLOUDINARY ERROR
-      // ----------------------------------------------------------
 
       throw Exception(
         'Cloudinary upload failed.\n'
@@ -147,14 +220,8 @@ class PlantService {
     required String moisture,
     required String temperature,
     required String status,
-
-    // Optional image
     XFile? imageFile,
   }) async {
-    // ----------------------------------------------------------
-    // GET CURRENT USER
-    // ----------------------------------------------------------
-
     final String? uid =
         FirebaseAuth.instance.currentUser?.uid;
 
@@ -163,10 +230,6 @@ class PlantService {
         'No authenticated user found.',
       );
     }
-
-    // ----------------------------------------------------------
-    // CREATE NEW PLANT REFERENCE
-    // ----------------------------------------------------------
 
     final DatabaseReference newPlantRef =
         _dbRef
@@ -182,10 +245,6 @@ class PlantService {
       );
     }
 
-    // ----------------------------------------------------------
-    // UPLOAD IMAGE IF SELECTED
-    // ----------------------------------------------------------
-
     String? imageUrl;
 
     if (imageFile != null) {
@@ -194,10 +253,6 @@ class PlantService {
         imageFile,
       );
     }
-
-    // ----------------------------------------------------------
-    // CREATE PLANT DATA
-    // ----------------------------------------------------------
 
     final Map<String, dynamic> plantData = {
       'name': name,
@@ -210,19 +265,11 @@ class PlantService {
       'createdAt': ServerValue.timestamp,
     };
 
-    // ----------------------------------------------------------
-    // SAVE IMAGE URL
-    // ----------------------------------------------------------
-
     if (imageUrl != null &&
         imageUrl.isNotEmpty) {
       plantData['imageUrl'] =
           imageUrl;
     }
-
-    // ----------------------------------------------------------
-    // SAVE TO FIREBASE
-    // ----------------------------------------------------------
 
     await newPlantRef.set(
       plantData,
@@ -240,17 +287,9 @@ class PlantService {
     required String location,
     required String category,
     required String wateringSchedule,
-
-    // Optional new image
     XFile? imageFile,
-
-    // Delete existing image
     bool removeImage = false,
   }) async {
-    // ----------------------------------------------------------
-    // GET CURRENT USER
-    // ----------------------------------------------------------
-
     final String? uid =
         FirebaseAuth.instance.currentUser?.uid;
 
@@ -260,18 +299,10 @@ class PlantService {
       );
     }
 
-    // ----------------------------------------------------------
-    // PLANT DATABASE REFERENCE
-    // ----------------------------------------------------------
-
     final DatabaseReference plantRef =
         _dbRef.child(
       'Users/$uid/Plants/$plantId',
     );
-
-    // ----------------------------------------------------------
-    // BASIC PLANT DATA
-    // ----------------------------------------------------------
 
     final Map<String, dynamic> updateData = {
       'name': name,
@@ -283,28 +314,9 @@ class PlantService {
       'lastUpdated': 'Just now',
     };
 
-    // ----------------------------------------------------------
-    // REMOVE EXISTING IMAGE
-    // ----------------------------------------------------------
-    //
-    // Firebase will remove the imageUrl field when null
-    // is written through update().
-    //
-
     if (removeImage) {
       updateData['imageUrl'] = null;
     }
-
-    // ----------------------------------------------------------
-    // UPLOAD NEW IMAGE
-    // ----------------------------------------------------------
-    //
-    // If the user selected a new image, upload it to
-    // Cloudinary and save the new URL.
-    //
-    // This takes priority over removeImage if both happen
-    // to be true.
-    //
 
     if (imageFile != null) {
       final String? imageUrl =
@@ -319,10 +331,6 @@ class PlantService {
       }
     }
 
-    // ----------------------------------------------------------
-    // UPDATE FIREBASE
-    // ----------------------------------------------------------
-
     await plantRef.update(
       updateData,
     );
@@ -335,10 +343,6 @@ class PlantService {
   Future<void> deletePlant(
     String plantId,
   ) async {
-    // ----------------------------------------------------------
-    // GET CURRENT USER
-    // ----------------------------------------------------------
-
     final String? uid =
         FirebaseAuth.instance.currentUser?.uid;
 
@@ -347,18 +351,6 @@ class PlantService {
         'No authenticated user found.',
       );
     }
-
-    // ----------------------------------------------------------
-    // DELETE FIREBASE PLANT RECORD
-    // ----------------------------------------------------------
-    //
-    // The Cloudinary image itself is NOT deleted here.
-    //
-    // Deleting Cloudinary assets requires an authenticated
-    // server-side API secret.
-    //
-    // The API secret must NEVER be placed inside Flutter.
-    //
 
     await _dbRef
         .child(

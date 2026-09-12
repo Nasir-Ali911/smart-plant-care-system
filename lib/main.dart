@@ -1,10 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_database/firebase_database.dart';
-import 'firebase_options.dart';
-import 'package:smart_plant_care/routes/app_router.dart';
 
-final Future<void> firebaseInitialization = _initializeFirebase();
+import 'firebase_options.dart';
+
+import 'package:smart_plant_care/routes/app_router.dart';
+import 'package:smart_plant_care/services/notification_service.dart';
 
 Future<void> _initializeFirebase() async {
   await Firebase.initializeApp(
@@ -15,8 +16,24 @@ Future<void> _initializeFirebase() async {
       'https://smart-plant-care-fyp-2026-default-rtdb.firebaseio.com';
 }
 
-void main() {
+Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // ------------------------------------------------------------
+  // Firebase initialization
+  // ------------------------------------------------------------
+
+  await _initializeFirebase();
+
+  // ------------------------------------------------------------
+  // Firebase Cloud Messaging
+  // ------------------------------------------------------------
+
+  await NotificationService.initialize();
+
+  // ------------------------------------------------------------
+  // Start application
+  // ------------------------------------------------------------
 
   runApp(const MyApp());
 }
