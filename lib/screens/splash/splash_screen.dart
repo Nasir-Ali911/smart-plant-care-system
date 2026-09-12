@@ -2,8 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:go_router/go_router.dart';
 
-import '../../main.dart';
-
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
 
@@ -20,21 +18,23 @@ class _SplashScreenState extends State<SplashScreen> {
 
   Future<void> _initializeApp() async {
     try {
-      // Keep the splash screen visible for at least 3 seconds
-      await Future.wait([
-        firebaseInitialization,
-        Future.delayed(const Duration(seconds: 3)),
-      ]);
+      // Firebase and FCM are initialized before runApp().
+      // Keep the splash screen visible for at least 3 seconds.
+      await Future.delayed(
+        const Duration(seconds: 3),
+      );
     } catch (error) {
       debugPrint('Startup initialization error: $error');
 
       // Still wait briefly so the splash does not disappear abruptly.
-      await Future.delayed(const Duration(seconds: 1));
+      await Future.delayed(
+        const Duration(seconds: 1),
+      );
     }
 
     if (!mounted) return;
 
-    // Navigate only after initialization and after the widget is mounted.
+    // Navigate to login after the splash delay.
     context.go('/login');
   }
 
@@ -44,12 +44,16 @@ class _SplashScreenState extends State<SplashScreen> {
       backgroundColor: const Color(0xFFE4EDE6),
       body: Center(
         child: Container(
-          constraints: const BoxConstraints(maxWidth: 480),
+          constraints: const BoxConstraints(
+            maxWidth: 480,
+          ),
           child: Stack(
             children: [
               SafeArea(
                 child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 24.0),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 24.0,
+                  ),
                   child: Column(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
@@ -171,5 +175,9 @@ class BottomCurveClipper extends CustomClipper<Path> {
   }
 
   @override
-  bool shouldReclip(CustomClipper<Path> oldClipper) => false;
+  bool shouldReclip(
+    CustomClipper<Path> oldClipper,
+  ) {
+    return false;
+  }
 }
