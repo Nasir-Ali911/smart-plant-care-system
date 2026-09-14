@@ -1,3 +1,4 @@
+import 'widgets/plant_camera_card.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:smart_plant_care/models/plant_model.dart';
@@ -55,8 +56,9 @@ class PlantDetailsScreen extends StatelessWidget {
           children: [
             // 1. Plant Header
             PlantHeader(plant: plant),
-            const SizedBox(height: 20),
 
+            const SizedBox(height: 20),
+            const PlantCameraCard(),
             // 2. Environmental Monitoring Grid
             const SectionTitle(title: 'Environmental Monitoring'),
             const SizedBox(height: 8),
