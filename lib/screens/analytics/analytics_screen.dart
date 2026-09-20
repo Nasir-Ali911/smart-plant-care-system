@@ -1,27 +1,73 @@
+import 'dart:math' as math;
+
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import 'package:smart_plant_care/services/plant_service.dart';
 
-class AnalyticsScreen extends StatefulWidget {
-  const AnalyticsScreen({
-    super.key,
-  });
+// ================================================================
+// DESIGN CONSTANTS (match project visual identity)
+// ================================================================
 
-  @override
-  State<AnalyticsScreen> createState() =>
-      _AnalyticsScreenState();
+const Color _kPrimary = Color(0xFF134E39);
+const Color _kBackground = Color(0xFFF4F7F5);
+const Color _kSurface = Colors.white;
+const Color _kSoftGreen = Color(0xFFE7F3ED);
+const Color _kAmber = Color(0xFFE08C0B);
+const Color _kRed = Color(0xFFD64545);
+
+// ================================================================
+// TIME RANGE ENUM
+// ================================================================
+
+enum _AnalyticsRange { hours24, days7, days30 }
+
+extension _AnalyticsRangeX on _AnalyticsRange {
+  String get label {
+    switch (this) {
+      case _AnalyticsRange.hours24:
+        return '24 Hours';
+      case _AnalyticsRange.days7:
+        return '7 Days';
+      case _AnalyticsRange.days30:
+        return '30 Days';
+    }
+  }
+
+  Duration get duration {
+    switch (this) {
+      case _AnalyticsRange.hours24:
+        return const Duration(hours: 24);
+      case _AnalyticsRange.days7:
+        return const Duration(days: 7);
+      case _AnalyticsRange.days30:
+        return const Duration(days: 30);
+    }
+  }
 }
 
-class _AnalyticsScreenState
-    extends State<AnalyticsScreen> {
-  final PlantService _plantService =
-      PlantService();
+// ================================================================
+// ANALYTICS SCREEN
+// ================================================================
 
-  List<Map<String, dynamic>> _logs = [];
+class AnalyticsScreen extends StatefulWidget {
+  const AnalyticsScreen({super.key});
 
-  bool _isLoading = true;
+  @override
+  State<AnalyticsScreen> createState() => _AnalyticsScreenState();
+}
+
+class _AnalyticsScreenState extends State<AnalyticsScreen> {
+  final PlantService _plantService = PlantService();
+
+  /// Raw logs fetched once from Firebase (unsorted, unfiltered).
+  List<Map<String, dynamic>> _rawLogs = const [];
+
+  /// Currently selected time range.
+  _AnalyticsRange _selectedRange = _AnalyticsRange.hours24;
+
+  bool _isLoading = false;
   String? _errorMessage;
 
   @override
@@ -31,10 +77,12 @@ class _AnalyticsScreenState
   }
 
   // ============================================================
-  // LOAD HISTORICAL DATA
+  // LOAD HISTORICAL DATA — single fetch, limitToLast(500)
   // ============================================================
 
   Future<void> _loadLogs() async {
+    if (_isLoading) return;
+
     setState(() {
       _isLoading = true;
       _errorMessage = null;
@@ -42,23 +90,22 @@ class _AnalyticsScreenState
 
     try {
       final List<Map<String, dynamic>> logs =
-          await _plantService.fetchRecentLogs(
-        limit: 50,
-      );
+          await _plantService.fetchRecentLogs(limit: 500);
 
       if (!mounted) return;
 
       setState(() {
-        _logs = logs;
+        _rawLogs = logs;
         _isLoading = false;
       });
-    } catch (e) {
+    } catch (_) {
       if (!mounted) return;
 
       setState(() {
         _isLoading = false;
         _errorMessage =
-            'Unable to load historical data.\n$e';
+            'We could not load your historical data. Please check your '
+            'connection and try again.';
       });
     }
   }
@@ -67,271 +114,1121 @@ class _AnalyticsScreenState
   // VALUE HELPERS
   // ============================================================
 
-  double _toDouble(dynamic value) {
-    if (value is num) {
-      return value.toDouble();
-    }
+  double? _toNullableDouble(dynamic value) {
+    if (value == null) return null;
+    if (value is num) return value.toDouble();
 
-    return double.tryParse(
-          value?.toString() ?? '',
-        ) ??
-        0.0;
+    return double.tryParse(value.toString());
   }
 
-  int _toInt(dynamic value) {
-    if (value is num) {
-      return value.toInt();
-    }
+  dynamic _getValue(Map<String, dynamic> log, String key) {
+    if (log.containsKey(key)) return log[key];
 
-    return int.tryParse(
-          value?.toString() ?? '',
-        ) ??
-        0;
-  }
-
-  dynamic _getValue(
-    Map<String, dynamic> log,
-    String key,
-  ) {
-    if (log.containsKey(key)) {
-      return log[key];
-    }
-
-    final String lowerKey =
-        key.toLowerCase();
-
+    final String lowerKey = key.toLowerCase();
     for (final entry in log.entries) {
-      if (entry.key.toLowerCase() ==
-          lowerKey) {
-        return entry.value;
-      }
+      if (entry.key.toLowerCase() == lowerKey) return entry.value;
     }
-
     return null;
   }
 
-  DateTime? _getTimestamp(
-    Map<String, dynamic> log,
-  ) {
-    final dynamic value =
-        _getValue(log, 'Timestamp');
+  // ============================================================
+  // TIMESTAMP PARSER — ms primary, seconds + ISO fallback
+  // All timestamps normalized to local time.
+  // ============================================================
 
-    final int timestamp =
-        _toInt(value);
+  DateTime? _getTimestamp(Map<String, dynamic> log) {
+    final dynamic value = _getValue(log, 'Timestamp');
+    if (value == null) return null;
 
-    if (timestamp <= 0) {
-      return null;
+    if (value is num) {
+      final number = value.toInt();
+
+      if (number > 100000000000) {
+        // Unix milliseconds (primary)
+        return DateTime.fromMillisecondsSinceEpoch(number).toLocal();
+      }
+      if (number > 1000000000) {
+        // Unix seconds (fallback)
+        return DateTime.fromMillisecondsSinceEpoch(number * 1000).toLocal();
+      }
     }
 
-    return DateTime.fromMillisecondsSinceEpoch(
-      timestamp,
-    );
+    return DateTime.tryParse(value.toString())?.toLocal();
   }
 
-  String _formatTime(
-    Map<String, dynamic> log,
-  ) {
-    final DateTime? dateTime =
-        _getTimestamp(log);
-
-    if (dateTime == null) {
-      return '--';
-    }
-
-    final DateTime local =
-        dateTime.toLocal();
-
-    final String hour =
-        local.hour.toString().padLeft(2, '0');
-
-    final String minute =
-        local.minute.toString().padLeft(2, '0');
-
-    return '$hour:$minute';
+  String _formatTime(DateTime? dt) {
+    if (dt == null) return '--';
+    final local = dt.toLocal();
+    final h = local.hour.toString().padLeft(2, '0');
+    final m = local.minute.toString().padLeft(2, '0');
+    return '$h:$m';
   }
 
-  String _formatDateTime(
-    Map<String, dynamic> log,
-  ) {
-    final DateTime? dateTime =
-        _getTimestamp(log);
+  String _formatDateTime(DateTime? dt) {
+    if (dt == null) return 'Unknown time';
+    final local = dt.toLocal();
+    final d = local.day.toString().padLeft(2, '0');
+    final mo = local.month.toString().padLeft(2, '0');
+    final h = local.hour.toString().padLeft(2, '0');
+    final mi = local.minute.toString().padLeft(2, '0');
+    return '$d/$mo/${local.year} $h:$mi';
+  }
 
-    if (dateTime == null) {
-      return 'Unknown time';
-    }
-
-    final DateTime local =
-        dateTime.toLocal();
-
-    final String day =
-        local.day.toString().padLeft(2, '0');
-
-    final String month =
-        local.month.toString().padLeft(2, '0');
-
-    final String hour =
-        local.hour.toString().padLeft(2, '0');
-
-    final String minute =
-        local.minute.toString().padLeft(2, '0');
-
-    return '$day/$month/${local.year} '
-        '$hour:$minute';
+  String _formatDay(DateTime? dt) {
+    if (dt == null) return '--';
+    final local = dt.toLocal();
+    final d = local.day.toString().padLeft(2, '0');
+    final mo = local.month.toString().padLeft(2, '0');
+    return '$d/$mo';
   }
 
   // ============================================================
-  // CHART DATA
+  // SOIL STATUS NORMALIZATION
+  // ============================================================
+
+  /// Normalizes a raw SoilStatus value into one of:
+  /// DRY, MOIST, NORMAL, WET, UNKNOWN.
+  ///
+  /// - Trims whitespace and uppercases before comparison.
+  /// - Blank / null / unrecognized values map to UNKNOWN.
+  String _normalizeSoilStatus(dynamic raw) {
+    final String value = raw?.toString().trim().toUpperCase() ?? '';
+
+    switch (value) {
+      case 'DRY':
+        return 'DRY';
+      case 'MOIST':
+        return 'MOIST';
+      case 'NORMAL':
+        return 'NORMAL';
+      case 'WET':
+        return 'WET';
+      default:
+        return 'UNKNOWN';
+    }
+  }
+
+  // ============================================================
+  // RANGE FILTERING + CHRONOLOGICAL SORT
+  // ============================================================
+
+  /// Returns logs within the selected range, sorted oldest → newest.
+  List<Map<String, dynamic>> _filteredLogs() {
+    if (_rawLogs.isEmpty) return const [];
+
+    final cutoff = DateTime.now().subtract(_selectedRange.duration);
+
+    final filtered = _rawLogs.where((log) {
+      final ts = _getTimestamp(log);
+      if (ts == null) return false;
+      return ts.isAfter(cutoff);
+    }).toList();
+
+    filtered.sort((a, b) {
+      final ta = _getTimestamp(a);
+      final tb = _getTimestamp(b);
+
+      if (ta == null && tb == null) return 0;
+      if (ta == null) return 1;
+      if (tb == null) return -1;
+
+      return ta.compareTo(tb);
+    });
+
+    return filtered;
+  }
+
+  int _countInRange(_AnalyticsRange range) {
+    if (_rawLogs.isEmpty) return 0;
+
+    final cutoff = DateTime.now().subtract(range.duration);
+    int count = 0;
+
+    for (final log in _rawLogs) {
+      final ts = _getTimestamp(log);
+      if (ts != null && ts.isAfter(cutoff)) count++;
+    }
+
+    return count;
+  }
+
+  // ============================================================
+  // SUMMARY STATISTICS
+  // ============================================================
+
+  double? _avgField(List<Map<String, dynamic>> logs, String field) {
+    if (logs.isEmpty) return null;
+
+    double sum = 0;
+    int n = 0;
+
+    for (final log in logs) {
+      final v = _toNullableDouble(_getValue(log, field));
+      if (v != null) {
+        sum += v;
+        n++;
+      }
+    }
+
+    if (n == 0) return null;
+    return sum / n;
+  }
+
+  int _countValid(List<Map<String, dynamic>> logs, String field) {
+    int n = 0;
+    for (final log in logs) {
+      if (_toNullableDouble(_getValue(log, field)) != null) n++;
+    }
+    return n;
+  }
+
+  int _countSoilStatus(List<Map<String, dynamic>> logs, String status) {
+    int n = 0;
+    for (final log in logs) {
+      final normalized =
+          _normalizeSoilStatus(_getValue(log, 'SoilStatus'));
+      if (normalized == status) n++;
+    }
+    return n;
+  }
+
+  // ============================================================
+  // SOIL DISTRIBUTION — every distinct label preserved
+  // ============================================================
+
+  Map<String, int> _soilDistribution(List<Map<String, dynamic>> logs) {
+    final counts = <String, int>{
+      'DRY': 0,
+      'MOIST': 0,
+      'NORMAL': 0,
+      'WET': 0,
+      'UNKNOWN': 0,
+    };
+
+    for (final log in logs) {
+      final normalized =
+          _normalizeSoilStatus(_getValue(log, 'SoilStatus'));
+      counts[normalized] = (counts[normalized] ?? 0) + 1;
+    }
+
+    return counts;
+  }
+
+  // ============================================================
+  // CHART DATA — real spots only
   // ============================================================
 
   List<FlSpot> _createSpots(
+    List<Map<String, dynamic>> logs,
     String field,
   ) {
-    final List<FlSpot> spots = [];
+    final spots = <FlSpot>[];
 
-    for (int i = 0;
-        i < _logs.length;
-        i++) {
-      final double value =
-          _toDouble(
-        _getValue(
-          _logs[i],
-          field,
-        ),
-      );
+    for (final log in logs) {
+      final dt = _getTimestamp(log);
+      final value = _toNullableDouble(_getValue(log, field));
+      if (dt == null || value == null) continue;
 
       spots.add(
-        FlSpot(
-          i.toDouble(),
-          value,
-        ),
+        FlSpot(dt.millisecondsSinceEpoch.toDouble(), value),
       );
     }
 
+    spots.sort((a, b) => a.x.compareTo(b.x));
     return spots;
   }
 
-  double _maxValue(
+  /// Adaptive "nice" Y-axis with clean min/max/interval values.
+  /// Handles constant-value datasets, small ranges, large ranges,
+  /// and negative values.
+  ({double min, double max, double interval}) _adaptiveYAxis(
     List<FlSpot> spots,
   ) {
     if (spots.isEmpty) {
-      return 10;
+      return (min: 0, max: 10, interval: 2);
     }
 
-    double max =
-        spots.first.y;
+    double dataMin = spots.first.y;
+    double dataMax = spots.first.y;
 
-    for (final FlSpot spot in spots) {
-      if (spot.y > max) {
-        max = spot.y;
-      }
+    for (final s in spots) {
+      if (s.y < dataMin) dataMin = s.y;
+      if (s.y > dataMax) dataMax = s.y;
     }
 
-    if (max <= 0) {
-      return 10;
+    // Constant / near-constant dataset — build a small window around
+    // the value so the line doesn't sit on the axis floor.
+    if ((dataMax - dataMin).abs() < 1e-6) {
+      final mid = dataMax;
+      final pad = mid.abs() < 1 ? 1.0 : mid.abs() * 0.05;
+      dataMin = mid - pad;
+      dataMax = mid + pad;
     }
 
-    return max * 1.2;
+    final double rawRange = dataMax - dataMin;
+    final double step = _niceStep(rawRange, targetTicks: 4);
+
+    // Align min / max to the step grid.
+    final double niceMin = (dataMin / step).floorToDouble() * step;
+    final double niceMax = (dataMax / step).ceilToDouble() * step;
+
+    // Guard: if the aligned range collapsed, expand by one step.
+    if (niceMax - niceMin < 1e-9) {
+      return (min: niceMin, max: niceMin + step, interval: step);
+    }
+
+    return (min: niceMin, max: niceMax, interval: step);
   }
 
-  double _minValue(
+  /// Returns a "nice" step size (1, 2, 5 × 10ⁿ) covering `range`
+  /// with approximately `targetTicks` intervals.
+  double _niceStep(double range, {int targetTicks = 4}) {
+    if (range <= 0 || !range.isFinite) return 1;
+
+    final double rawStep = range / targetTicks;
+    final double magnitude =
+        math.pow(10, (math.log(rawStep) / math.ln10).floor()).toDouble();
+    final double residual = rawStep / magnitude;
+
+    double niceResidual;
+    if (residual <= 1) {
+      niceResidual = 1;
+    } else if (residual <= 2) {
+      niceResidual = 2;
+    } else if (residual <= 5) {
+      niceResidual = 5;
+    } else {
+      niceResidual = 10;
+    }
+
+    return niceResidual * magnitude;
+  }
+
+  /// X-axis tick interval in milliseconds. Derived from the actual
+  /// span of the plotted spots (not from fixed assumptions), so it
+  /// adapts to whatever data is actually present.
+  double _bottomIntervalMs(
     List<FlSpot> spots,
+    _AnalyticsRange range,
   ) {
-    if (spots.isEmpty) {
-      return 0;
-    }
-
-    double min =
-        spots.first.y;
-
-    for (final FlSpot spot in spots) {
-      if (spot.y < min) {
-        min = spot.y;
+    if (spots.length < 2) {
+      // Fall back to the range default when there's nothing to span.
+      switch (range) {
+        case _AnalyticsRange.hours24:
+          return 6 * 60 * 60 * 1000;
+        case _AnalyticsRange.days7:
+          return 24 * 60 * 60 * 1000;
+        case _AnalyticsRange.days30:
+          return 5 * 24 * 60 * 60 * 1000;
       }
     }
 
-    return min < 0 ? min * 1.2 : 0;
+    final double spanMs = spots.last.x - spots.first.x;
+    if (spanMs <= 0) {
+      switch (range) {
+        case _AnalyticsRange.hours24:
+          return 6 * 60 * 60 * 1000;
+        case _AnalyticsRange.days7:
+          return 24 * 60 * 60 * 1000;
+        case _AnalyticsRange.days30:
+          return 5 * 24 * 60 * 60 * 1000;
+      }
+    }
+
+    // Aim for roughly 4–6 ticks across the visible span.
+    final double targetTicks = 5.0;
+    final double rawStep = spanMs / targetTicks;
+
+    // Snap to friendly units.
+    const double minute = 60 * 1000;
+    const double hour = 60 * minute;
+    const double day = 24 * hour;
+
+    if (rawStep <= 15 * minute) return 15 * minute;
+    if (rawStep <= 30 * minute) return 30 * minute;
+    if (rawStep <= hour) return hour;
+    if (rawStep <= 2 * hour) return 2 * hour;
+    if (rawStep <= 3 * hour) return 3 * hour;
+    if (rawStep <= 6 * hour) return 6 * hour;
+    if (rawStep <= 12 * hour) return 12 * hour;
+    if (rawStep <= day) return day;
+    if (rawStep <= 2 * day) return 2 * day;
+    if (rawStep <= 5 * day) return 5 * day;
+    if (rawStep <= 7 * day) return 7 * day;
+    if (rawStep <= 14 * day) return 14 * day;
+    return 30 * day;
+  }
+
+  /// Y-axis label formatter: integer for ADC, 1 decimal otherwise.
+  String _formatYLabel(double value, String field) {
+    if (field == 'LightIntensity') {
+      return value.toStringAsFixed(0);
+    }
+    return value.toStringAsFixed(1);
   }
 
   // ============================================================
-  // CHART WIDGET
+  // BUILD
   // ============================================================
 
-  Widget _buildLineChart({
-    required String title,
-    required String unit,
-    required String field,
-    required IconData icon,
-  }) {
-    final List<FlSpot> spots =
-        _createSpots(field);
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: _kBackground,
+      appBar: AppBar(
+        backgroundColor: _kPrimary,
+        foregroundColor: Colors.white,
+        elevation: 0,
+        title: Text(
+          'Analytics',
+          style: GoogleFonts.poppins(
+            fontSize: 19,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+        actions: [
+          IconButton(
+            tooltip: 'Refresh',
+            onPressed: _isLoading ? null : _loadLogs,
+            icon: const Icon(Icons.refresh),
+          ),
+        ],
+      ),
+      body: _buildBody(),
+    );
+  }
 
-    if (spots.isEmpty) {
-      return _buildEmptyChartCard(
-        title,
-        icon,
+  Widget _buildBody() {
+    if (_isLoading) return _buildLoadingState();
+    if (_errorMessage != null) return _buildErrorState();
+
+    if (_rawLogs.isEmpty) {
+      return RefreshIndicator(
+        color: _kPrimary,
+        onRefresh: _loadLogs,
+        child: ListView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          padding: const EdgeInsets.all(16),
+          children: [
+            SizedBox(
+              height: MediaQuery.of(context).size.height * 0.6,
+              child: _buildEmptyState(),
+            ),
+          ],
+        ),
       );
     }
 
-    final double maxY =
-        _maxValue(spots);
+    return RefreshIndicator(
+      color: _kPrimary,
+      onRefresh: _loadLogs,
+      child: SingleChildScrollView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: const EdgeInsets.fromLTRB(16, 16, 16, 32),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _buildHeader(),
+            const SizedBox(height: 18),
+            _buildRangeSelector(),
+            const SizedBox(height: 18),
+            ..._buildRangeContent(),
+            const SizedBox(height: 24),
+            Center(
+              child: Text(
+                'Data source: SmartPlant/Logs',
+                style: GoogleFonts.poppins(
+                  fontSize: 10,
+                  color: Colors.grey.shade500,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 
-    final double minY =
-        _minValue(spots);
+  // ============================================================
+  // HEADER
+  // ============================================================
+
+  Widget _buildHeader() {
+    final int countInRange = _countInRange(_selectedRange);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(
+              child: Text(
+                'Plant Analytics',
+                style: GoogleFonts.poppins(
+                  fontSize: 22,
+                  fontWeight: FontWeight.w700,
+                  color: _kPrimary,
+                ),
+              ),
+            ),
+            const SizedBox(width: 10),
+            Container(
+              padding: const EdgeInsets.symmetric(
+                horizontal: 10,
+                vertical: 5,
+              ),
+              decoration: BoxDecoration(
+                color: _kSoftGreen,
+                borderRadius: BorderRadius.circular(20),
+              ),
+              child: Text(
+                '$countInRange readings',
+                style: GoogleFonts.poppins(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w600,
+                  color: _kPrimary,
+                ),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 4),
+        Text(
+          'Historical sensor insights from your Smart Plant Care device',
+          style: GoogleFonts.poppins(
+            fontSize: 12.5,
+            color: Colors.grey.shade600,
+            height: 1.4,
+          ),
+        ),
+      ],
+    );
+  }
+
+  // ============================================================
+  // RANGE SELECTOR
+  // ============================================================
+
+  Widget _buildRangeSelector() {
+    return SizedBox(
+      height: 40,
+      child: ListView(
+        scrollDirection: Axis.horizontal,
+        physics: const BouncingScrollPhysics(),
+        children: _AnalyticsRange.values.map((range) {
+          final bool isSelected = range == _selectedRange;
+          final int count = _countInRange(range);
+          final bool isEnabled = count >= 1;
+
+          return Padding(
+            padding: const EdgeInsets.only(right: 8),
+            child: _rangeChip(
+              label: range.label,
+              selected: isSelected,
+              enabled: isEnabled,
+              onTap: isEnabled
+                  ? () {
+                      if (range == _selectedRange) return;
+                      setState(() {
+                        _selectedRange = range;
+                      });
+                    }
+                  : null,
+            ),
+          );
+        }).toList(),
+      ),
+    );
+  }
+
+  Widget _rangeChip({
+    required String label,
+    required bool selected,
+    required bool enabled,
+    required VoidCallback? onTap,
+  }) {
+    final Color bg = !enabled
+        ? Colors.grey.shade200
+        : selected
+            ? _kPrimary
+            : Colors.white;
+
+    final Color fg = !enabled
+        ? Colors.grey.shade500
+        : selected
+            ? Colors.white
+            : _kPrimary;
+
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(20),
+        onTap: onTap,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 200),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 9),
+          decoration: BoxDecoration(
+            color: bg,
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(
+              color: selected && enabled
+                  ? _kPrimary
+                  : Colors.grey.shade300,
+              width: 1,
+            ),
+            boxShadow: selected && enabled
+                ? [
+                    BoxShadow(
+                      color: _kPrimary.withOpacity(0.18),
+                      blurRadius: 8,
+                      offset: const Offset(0, 3),
+                    ),
+                  ]
+                : null,
+          ),
+          child: Text(
+            label,
+            style: GoogleFonts.poppins(
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+              color: fg,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  // ============================================================
+  // RANGE CONTENT
+  // ============================================================
+
+  List<Widget> _buildRangeContent() {
+    final logs = _filteredLogs();
+
+    if (logs.isEmpty) {
+      return [
+        const SizedBox(height: 40),
+        _buildInfoCard(
+          title: 'No readings in this range',
+          subtitle:
+              'Try a different time range or refresh to see the latest data.',
+        ),
+        const SizedBox(height: 40),
+      ];
+    }
+
+    return [
+      _buildLatestReading(logs),
+      const SizedBox(height: 12),
+      _buildContextRow(logs),
+      const SizedBox(height: 22),
+      _buildSectionTitle('Summary Statistics'),
+      const SizedBox(height: 12),
+      _buildSummaryGrid(logs),
+      const SizedBox(height: 24),
+      _buildChartSection(
+        title: 'Temperature Trend',
+        unit: '°C',
+        field: 'Temperature',
+        icon: Icons.thermostat_outlined,
+        accent: Colors.orange,
+        logs: logs,
+      ),
+      const SizedBox(height: 18),
+      _buildChartSection(
+        title: 'Humidity Trend',
+        unit: '%',
+        field: 'Humidity',
+        icon: Icons.water_drop_outlined,
+        accent: Colors.blue,
+        logs: logs,
+      ),
+      const SizedBox(height: 18),
+      _buildChartSection(
+        title: 'Light Intensity Trend',
+        unit: 'ADC',
+        field: 'LightIntensity',
+        icon: Icons.wb_sunny_outlined,
+        accent: _kAmber,
+        logs: logs,
+      ),
+      const SizedBox(height: 24),
+      _buildSoilDistributionCard(logs),
+      const SizedBox(height: 18),
+      _buildWateringInfoCard(),
+      const SizedBox(height: 18),
+      _buildRecentSoilReadings(logs),
+    ];
+  }
+
+  Widget _buildSectionTitle(String text) {
+    return Text(
+      text,
+      style: GoogleFonts.poppins(
+        fontSize: 17,
+        fontWeight: FontWeight.w700,
+        color: Colors.black87,
+      ),
+    );
+  }
+
+  // ============================================================
+  // LATEST READING HERO
+  // ============================================================
+
+  Widget _buildLatestReading(List<Map<String, dynamic>> logs) {
+    final latest = logs.last;
+
+    final double? temperature =
+        _toNullableDouble(_getValue(latest, 'Temperature'));
+    final double? humidity =
+        _toNullableDouble(_getValue(latest, 'Humidity'));
+    final double? light =
+        _toNullableDouble(_getValue(latest, 'LightIntensity'));
+
+    // Normalize — blank/null/unrecognized become UNKNOWN.
+    final String soil =
+        _normalizeSoilStatus(_getValue(latest, 'SoilStatus'));
+
+    final DateTime? ts = _getTimestamp(latest);
 
     return Container(
-      margin: const EdgeInsets.only(
-        bottom: 16,
-      ),
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius:
-            BorderRadius.circular(18),
+        color: _kPrimary,
+        borderRadius: BorderRadius.circular(20),
         boxShadow: [
           BoxShadow(
-            color: Colors.black
-                .withOpacity(0.05),
+            color: Colors.black.withOpacity(0.08),
             blurRadius: 12,
-            offset:
-                const Offset(0, 4),
+            offset: const Offset(0, 5),
           ),
         ],
       ),
       child: Column(
-        crossAxisAlignment:
-            CrossAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.sensors, color: Colors.white, size: 20),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  'Latest Reading',
+                  style: GoogleFonts.poppins(
+                    color: Colors.white,
+                    fontSize: 15,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+              Flexible(
+                child: Text(
+                  _formatDateTime(ts),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: GoogleFonts.poppins(
+                    color: Colors.white70,
+                    fontSize: 10,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          GridView.count(
+            crossAxisCount: 2,
+            crossAxisSpacing: 10,
+            mainAxisSpacing: 10,
+            childAspectRatio: 2.4,
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            children: [
+              _latestTile(
+                icon: Icons.thermostat,
+                label: 'Temperature',
+                value: temperature != null
+                    ? temperature.toStringAsFixed(1)
+                    : '--',
+                unit: '°C',
+              ),
+              _latestTile(
+                icon: Icons.water_drop,
+                label: 'Humidity',
+                value: humidity != null
+                    ? humidity.toStringAsFixed(1)
+                    : '--',
+                unit: '%',
+              ),
+              _latestTile(
+                icon: Icons.wb_sunny,
+                label: 'Light',
+                value: light != null ? light.toStringAsFixed(0) : '--',
+                unit: 'ADC',
+              ),
+              _latestTile(
+                icon: Icons.grass,
+                label: 'Soil',
+                value: soil,
+                unit: '',
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _latestTile({
+    required IconData icon,
+    required String label,
+    required String value,
+    required String unit,
+  }) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: Colors.white.withOpacity(0.10),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(icon, color: Colors.white70, size: 14),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Text(
+                  label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: GoogleFonts.poppins(
+                    color: Colors.white70,
+                    fontSize: 10,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          FittedBox(
+            fit: BoxFit.scaleDown,
+            alignment: Alignment.centerLeft,
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                Text(
+                  value,
+                  style: GoogleFonts.poppins(
+                    color: Colors.white,
+                    fontSize: 16,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                if (unit.isNotEmpty) ...[
+                  const SizedBox(width: 3),
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 2),
+                    child: Text(
+                      unit,
+                      style: GoogleFonts.poppins(
+                        color: Colors.white70,
+                        fontSize: 10,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ============================================================
+  // CONTEXT ROW (compact factual info)
+  // ============================================================
+
+  Widget _buildContextRow(List<Map<String, dynamic>> logs) {
+    final int total = logs.length;
+    final int nTemp = _countValid(logs, 'Temperature');
+    final int nHumid = _countValid(logs, 'Humidity');
+
+    final DateTime? latestTs =
+        logs.isNotEmpty ? _getTimestamp(logs.last) : null;
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      decoration: BoxDecoration(
+        color: _kSurface,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: Colors.grey.shade200),
+      ),
+      child: Wrap(
+        spacing: 18,
+        runSpacing: 6,
+        children: [
+          _contextItem(
+            Icons.dataset_outlined,
+            'Total readings: $total',
+          ),
+          _contextItem(
+            Icons.thermostat_outlined,
+            'Valid Temp: $nTemp',
+          ),
+          _contextItem(
+            Icons.water_drop_outlined,
+            'Valid Humidity: $nHumid',
+          ),
+          _contextItem(
+            Icons.schedule,
+            'Latest: ${_formatDateTime(latestTs)}',
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _contextItem(IconData icon, String label) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(icon, size: 13, color: _kPrimary),
+        const SizedBox(width: 5),
+        Text(
+          label,
+          style: GoogleFonts.poppins(
+            fontSize: 10.5,
+            color: Colors.grey.shade700,
+            fontWeight: FontWeight.w500,
+          ),
+        ),
+      ],
+    );
+  }
+
+  // ============================================================
+  // SUMMARY GRID
+  // ============================================================
+
+  Widget _buildSummaryGrid(List<Map<String, dynamic>> logs) {
+    final double? avgTemp = _avgField(logs, 'Temperature');
+    final double? avgHumid = _avgField(logs, 'Humidity');
+    final int nTemp = _countValid(logs, 'Temperature');
+    final int nHumid = _countValid(logs, 'Humidity');
+    final int dryCount = _countSoilStatus(logs, 'DRY');
+    final int total = logs.length;
+
+    return GridView.count(
+      crossAxisCount: 2,
+      crossAxisSpacing: 12,
+      mainAxisSpacing: 12,
+      childAspectRatio: 1.55,
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      children: [
+        _summaryCard(
+          icon: Icons.thermostat_outlined,
+          iconColor: Colors.orange,
+          title: 'Avg Temperature',
+          value: avgTemp != null ? avgTemp.toStringAsFixed(1) : '--',
+          unit: '°C',
+          subtitle: nTemp > 0 ? 'n = $nTemp' : 'No readings',
+        ),
+        _summaryCard(
+          icon: Icons.water_drop_outlined,
+          iconColor: Colors.blue,
+          title: 'Avg Humidity',
+          value: avgHumid != null ? avgHumid.toStringAsFixed(1) : '--',
+          unit: '%',
+          subtitle: nHumid > 0 ? 'n = $nHumid' : 'No readings',
+        ),
+        _summaryCard(
+          icon: Icons.grass_outlined,
+          iconColor: _kAmber,
+          title: 'Dry Records',
+          value: total > 0 ? '$dryCount / $total' : '--',
+          unit: '',
+          subtitle: total > 0
+              ? '${(dryCount / total * 100).toStringAsFixed(1)}% of all records'
+              : 'No readings',
+        ),
+        _summaryCard(
+          icon: Icons.dataset_outlined,
+          iconColor: _kPrimary,
+          title: 'Total Readings',
+          value: '$total',
+          unit: '',
+          subtitle: 'Selected range',
+        ),
+      ],
+    );
+  }
+
+  Widget _summaryCard({
+    required IconData icon,
+    required Color iconColor,
+    required String title,
+    required String value,
+    required String unit,
+    required String subtitle,
+  }) {
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: _kSurface,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: iconColor.withOpacity(0.15), width: 1),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.04),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Container(
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(
+              color: iconColor.withOpacity(0.12),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Icon(icon, color: iconColor, size: 18),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            title,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: GoogleFonts.poppins(
+              fontSize: 11,
+              color: Colors.grey.shade600,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+          const SizedBox(height: 2),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              Flexible(
+                child: FittedBox(
+                  fit: BoxFit.scaleDown,
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    value,
+                    maxLines: 1,
+                    style: GoogleFonts.poppins(
+                      fontSize: 18,
+                      fontWeight: FontWeight.w700,
+                      color: Colors.black87,
+                    ),
+                  ),
+                ),
+              ),
+              if (unit.isNotEmpty) ...[
+                const SizedBox(width: 3),
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 2),
+                  child: Text(
+                    unit,
+                    style: GoogleFonts.poppins(
+                      fontSize: 10,
+                      color: Colors.grey.shade600,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ),
+              ],
+            ],
+          ),
+          const SizedBox(height: 3),
+          Text(
+            subtitle,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: GoogleFonts.poppins(
+              fontSize: 10,
+              color: Colors.grey.shade500,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ============================================================
+  // CHART SECTION
+  // ============================================================
+
+  Widget _buildChartSection({
+    required String title,
+    required String unit,
+    required String field,
+    required IconData icon,
+    required Color accent,
+    required List<Map<String, dynamic>> logs,
+  }) {
+    final List<FlSpot> spots = _createSpots(logs, field);
+
+    if (spots.length < 2) {
+      return _chartInsufficientCard(
+        title: title,
+        icon: icon,
+        accent: accent,
+        spotsCount: spots.length,
+      );
+    }
+
+    final axis = _adaptiveYAxis(spots);
+    final double bottomInterval =
+        _bottomIntervalMs(spots, _selectedRange);
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: _kSurface,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: Colors.grey.shade200),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.04),
+            blurRadius: 12,
+            offset: const Offset(0, 5),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
               Container(
-                padding:
-                    const EdgeInsets.all(9),
+                padding: const EdgeInsets.all(9),
                 decoration: BoxDecoration(
-                  color:
-                      const Color(0xFF134E39)
-                          .withOpacity(0.10),
-                  borderRadius:
-                      BorderRadius.circular(
-                    10,
-                  ),
+                  color: accent.withOpacity(0.12),
+                  borderRadius: BorderRadius.circular(10),
                 ),
-                child: Icon(
-                  icon,
-                  color:
-                      const Color(0xFF134E39),
-                  size: 20,
-                ),
+                child: Icon(icon, color: accent, size: 18),
               ),
               const SizedBox(width: 10),
               Expanded(
                 child: Text(
                   title,
                   style: GoogleFonts.poppins(
-                    fontSize: 16,
-                    fontWeight:
-                        FontWeight.w600,
-                    color:
-                        const Color(0xFF1F2937),
+                    fontSize: 15,
+                    fontWeight: FontWeight.w600,
+                    color: Colors.black87,
                   ),
                 ),
               ),
@@ -339,189 +1236,121 @@ class _AnalyticsScreenState
                 unit,
                 style: GoogleFonts.poppins(
                   fontSize: 12,
-                  color:
-                      Colors.grey.shade600,
+                  color: Colors.grey.shade600,
+                  fontWeight: FontWeight.w500,
                 ),
               ),
             ],
           ),
-
-          const SizedBox(height: 20),
-
+          const SizedBox(height: 16),
           SizedBox(
-            height: 230,
+            height: 210,
             child: LineChart(
               LineChartData(
-                minY: minY,
-                maxY: maxY,
-
+                minY: axis.min,
+                maxY: axis.max,
                 gridData: FlGridData(
                   show: true,
-                  drawVerticalLine:
-                      false,
-                  horizontalInterval:
-                      _calculateInterval(
-                    minY,
-                    maxY,
+                  drawVerticalLine: false,
+                  horizontalInterval: axis.interval,
+                  getDrawingHorizontalLine: (value) => FlLine(
+                    color: Colors.grey.shade200,
+                    strokeWidth: 1,
                   ),
                 ),
-
-                borderData:
-                    FlBorderData(
-                  show: false,
-                ),
-
-                titlesData:
-                    FlTitlesData(
-                  topTitles:
-                      const AxisTitles(
-                    sideTitles:
-                        SideTitles(
-                      showTitles: false,
-                    ),
+                borderData: FlBorderData(show: false),
+                titlesData: FlTitlesData(
+                  topTitles: const AxisTitles(
+                    sideTitles: SideTitles(showTitles: false),
                   ),
-                  rightTitles:
-                      const AxisTitles(
-                    sideTitles:
-                        SideTitles(
-                      showTitles: false,
-                    ),
+                  rightTitles: const AxisTitles(
+                    sideTitles: SideTitles(showTitles: false),
                   ),
-                  leftTitles:
-                      AxisTitles(
-                    sideTitles:
-                        SideTitles(
+                  leftTitles: AxisTitles(
+                    sideTitles: SideTitles(
                       showTitles: true,
-                      reservedSize: 42,
-                      interval:
-                          _calculateInterval(
-                        minY,
-                        maxY,
-                      ),
-                      getTitlesWidget:
-                          (
-                        double value,
-                        TitleMeta meta,
-                      ) {
+                      reservedSize: 44,
+                      interval: axis.interval,
+                      getTitlesWidget: (value, meta) {
                         return Text(
-                          value
-                              .toStringAsFixed(
-                            0,
-                          ),
-                          style:
-                              GoogleFonts.poppins(
+                          _formatYLabel(value, field),
+                          style: GoogleFonts.poppins(
                             fontSize: 10,
-                            color: Colors
-                                .grey
-                                .shade600,
+                            color: Colors.grey.shade600,
                           ),
                         );
                       },
                     ),
                   ),
-                  bottomTitles:
-                      AxisTitles(
-                    sideTitles:
-                        SideTitles(
+                  bottomTitles: AxisTitles(
+                    sideTitles: SideTitles(
                       showTitles: true,
-                      reservedSize: 28,
-                      interval:
-                          _bottomInterval(),
-                      getTitlesWidget:
-                          (
-                        double value,
-                        TitleMeta meta,
-                      ) {
-                        final int index =
-                            value.round();
+                      reservedSize: 26,
+                      interval: bottomInterval,
+                      getTitlesWidget: (value, meta) {
+                        final dt = DateTime
+                            .fromMillisecondsSinceEpoch(value.toInt())
+                            .toLocal();
 
-                        if (index <
-                                0 ||
-                            index >=
-                                _logs.length) {
-                          return const SizedBox();
-                        }
+                        final label =
+                            _selectedRange == _AnalyticsRange.hours24
+                                ? _formatTime(dt)
+                                : _formatDay(dt);
 
-                        return Text(
-                          _formatTime(
-                            _logs[index],
-                          ),
-                          style:
-                              GoogleFonts.poppins(
-                            fontSize: 9,
-                            color: Colors
-                                .grey
-                                .shade600,
+                        return Padding(
+                          padding: const EdgeInsets.only(top: 6),
+                          child: Text(
+                            label,
+                            style: GoogleFonts.poppins(
+                              fontSize: 9,
+                              color: Colors.grey.shade600,
+                            ),
                           ),
                         );
                       },
                     ),
                   ),
                 ),
+                lineTouchData: LineTouchData(
+                  touchTooltipData: LineTouchTooltipData(
+                    getTooltipItems: (touchedSpots) {
+                      return touchedSpots.map((spot) {
+                        final dt = DateTime
+                            .fromMillisecondsSinceEpoch(spot.x.toInt())
+                            .toLocal();
 
-                lineTouchData:
-                    LineTouchData(
-                  touchTooltipData:
-                      LineTouchTooltipData(
-                    getTooltipItems:
-                        (
-                      List<
-                          LineBarSpot>
-                          touchedSpots,
-                    ) {
-                      return touchedSpots
-                          .map(
-                        (
-                          LineBarSpot spot,
-                        ) {
-                          final int index =
-                              spot.x.round();
-
-                          String time =
-                              '';
-
-                          if (index >= 0 &&
-                              index <
-                                  _logs
-                                      .length) {
-                            time =
-                                _formatDateTime(
-                              _logs[index],
-                            );
-                          }
-
-                          return LineTooltipItem(
-                            '${spot.y.toStringAsFixed(1)} $unit\n'
-                            '$time',
-                            GoogleFonts.poppins(
-                              color:
-                                  Colors.white,
-                              fontSize:
-                                  11,
-                              fontWeight:
-                                  FontWeight.w500,
-                            ),
-                          );
-                        },
-                      ).toList();
+                        return LineTooltipItem(
+                          '${spot.y.toStringAsFixed(1)} $unit\n'
+                          '${_formatDateTime(dt)}',
+                          GoogleFonts.poppins(
+                            color: Colors.white,
+                            fontSize: 11,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        );
+                      }).toList();
                     },
                   ),
                 ),
-
                 lineBarsData: [
                   LineChartBarData(
                     spots: spots,
-                    isCurved: true,
-                    barWidth: 3,
-                    dotData:
-                        FlDotData(
-                      show:
-                          spots.length <=
-                              20,
-                    ),
-                    belowBarData:
-                        BarAreaData(
+                    // Straight segments — real observations only,
+                    // no interpolation/smoothing.
+                    isCurved: false,
+                    barWidth: 2.4,
+                    color: accent,
+                    dotData: FlDotData(show: spots.length <= 20),
+                    belowBarData: BarAreaData(
                       show: true,
+                      gradient: LinearGradient(
+                        begin: Alignment.topCenter,
+                        end: Alignment.bottomCenter,
+                        colors: [
+                          accent.withOpacity(0.22),
+                          accent.withOpacity(0.02),
+                        ],
+                      ),
                     ),
                   ),
                 ],
@@ -533,674 +1362,679 @@ class _AnalyticsScreenState
     );
   }
 
-  double _calculateInterval(
-    double min,
-    double max,
-  ) {
-    final double range =
-        max - min;
+  Widget _chartInsufficientCard({
+    required String title,
+    required IconData icon,
+    required Color accent,
+    required int spotsCount,
+  }) {
+    final String explanation = spotsCount == 0
+        ? 'No valid readings of this metric are present in the selected range.'
+        : 'Only $spotsCount valid reading${spotsCount == 1 ? '' : 's'} in '
+            'the selected range. At least 2 valid readings are required to '
+            'display a trend.';
 
-    if (range <= 10) {
-      return 2;
-    }
-
-    if (range <= 50) {
-      return 10;
-    }
-
-    if (range <= 200) {
-      return 50;
-    }
-
-    return 200;
-  }
-
-  double _bottomInterval() {
-    if (_logs.length <= 6) {
-      return 1;
-    }
-
-    if (_logs.length <= 12) {
-      return 2;
-    }
-
-    if (_logs.length <= 25) {
-      return 5;
-    }
-
-    return 10;
-  }
-
-  Widget _buildEmptyChartCard(
-    String title,
-    IconData icon,
-  ) {
     return Container(
-      margin:
-          const EdgeInsets.only(
-        bottom: 16,
-      ),
-      padding:
-          const EdgeInsets.all(20),
+      padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius:
-            BorderRadius.circular(18),
+        color: _kSurface,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: Colors.grey.shade200),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.03),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
       ),
       child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(
-            icon,
-            color:
-                const Color(0xFF134E39),
+          Container(
+            padding: const EdgeInsets.all(9),
+            decoration: BoxDecoration(
+              color: accent.withOpacity(0.10),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Icon(icon, color: accent, size: 18),
           ),
           const SizedBox(width: 12),
           Expanded(
-            child: Text(
-              '$title\nNo historical data available.',
-              style:
-                  GoogleFonts.poppins(
-                fontSize: 13,
-                color:
-                    Colors.grey.shade600,
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  // ============================================================
-  // LATEST READING
-  // ============================================================
-
-  Widget _buildLatestReading() {
-    if (_logs.isEmpty) {
-      return const SizedBox();
-    }
-
-    final Map<String, dynamic> latest =
-        _logs.last;
-
-    final double temperature =
-        _toDouble(
-      _getValue(
-        latest,
-        'Temperature',
-      ),
-    );
-
-    final double humidity =
-        _toDouble(
-      _getValue(
-        latest,
-        'Humidity',
-      ),
-    );
-
-    final double light =
-        _toDouble(
-      _getValue(
-        latest,
-        'LightIntensity',
-      ),
-    );
-
-    final String soil =
-        _getValue(
-              latest,
-              'SoilStatus',
-            )
-            ?.toString()
-            .toUpperCase() ??
-        'UNKNOWN';
-
-    return Container(
-      margin:
-          const EdgeInsets.only(
-        bottom: 20,
-      ),
-      padding:
-          const EdgeInsets.all(18),
-      decoration: BoxDecoration(
-        color:
-            const Color(0xFF134E39),
-        borderRadius:
-            BorderRadius.circular(20),
-      ),
-      child: Column(
-        crossAxisAlignment:
-            CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              const Icon(
-                Icons.sensors,
-                color: Colors.white,
-                size: 21,
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Text(
-                  'Latest Reading',
-                  style:
-                      GoogleFonts.poppins(
-                    color: Colors.white,
-                    fontSize: 16,
-                    fontWeight:
-                        FontWeight.w600,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: GoogleFonts.poppins(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w600,
+                    color: Colors.black87,
                   ),
                 ),
-              ),
-              Text(
-                _formatDateTime(
-                  latest,
+                const SizedBox(height: 6),
+                Text(
+                  'Not enough historical data for a trend',
+                  style: GoogleFonts.poppins(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w500,
+                    color: Colors.grey.shade700,
+                  ),
                 ),
-                style:
-                    GoogleFonts.poppins(
-                  color: Colors.white70,
-                  fontSize: 10,
+                const SizedBox(height: 3),
+                Text(
+                  explanation,
+                  style: GoogleFonts.poppins(
+                    fontSize: 11,
+                    color: Colors.grey.shade600,
+                    height: 1.4,
+                  ),
                 ),
-              ),
-            ],
-          ),
-
-          const SizedBox(height: 18),
-
-          Row(
-            children: [
-              _buildLatestValue(
-                Icons.thermostat,
-                temperature
-                    .toStringAsFixed(1),
-                '°C',
-              ),
-              _buildLatestValue(
-                Icons.water_drop,
-                humidity
-                    .toStringAsFixed(1),
-                '%',
-              ),
-              _buildLatestValue(
-                Icons.wb_sunny,
-                light
-                    .toStringAsFixed(0),
-                'ADC',
-              ),
-              _buildLatestValue(
-                Icons.grass,
-                soil,
-                '',
-              ),
-            ],
+              ],
+            ),
           ),
         ],
       ),
     );
   }
 
-  Widget _buildLatestValue(
-    IconData icon,
-    String value,
-    String unit,
-  ) {
-    return Expanded(
-      child: Column(
-        children: [
-          Icon(
-            icon,
-            color: Colors.white70,
-            size: 18,
-          ),
-          const SizedBox(height: 5),
-          Text(
-            value,
-            overflow:
-                TextOverflow.ellipsis,
-            style:
-                GoogleFonts.poppins(
-              color: Colors.white,
-              fontSize: 14,
-              fontWeight:
-                  FontWeight.w600,
-            ),
-          ),
-          if (unit.isNotEmpty)
-            Text(
-              unit,
-              style:
-                  GoogleFonts.poppins(
-                color: Colors.white70,
-                fontSize: 9,
-              ),
-            ),
-        ],
-      ),
-    );
-  }
-
   // ============================================================
-  // SOIL HISTORY
+  // SOIL STATUS DISTRIBUTION
   // ============================================================
 
-  Widget _buildSoilHistory() {
-    if (_logs.isEmpty) {
-      return const SizedBox();
-    }
+  Widget _buildSoilDistributionCard(List<Map<String, dynamic>> logs) {
+    final dist = _soilDistribution(logs);
+    final total = logs.length;
+
+    const orderedLabels = ['DRY', 'MOIST', 'NORMAL', 'WET', 'UNKNOWN'];
+    final presentLabels = orderedLabels
+        .where((label) => (dist[label] ?? 0) > 0)
+        .toList();
 
     return Container(
-      margin:
-          const EdgeInsets.only(
-        bottom: 16,
-      ),
-      padding:
-          const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius:
-            BorderRadius.circular(18),
+        color: _kSurface,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: Colors.grey.shade200),
         boxShadow: [
           BoxShadow(
-            color:
-                Colors.black.withOpacity(
-              0.05,
-            ),
+            color: Colors.black.withOpacity(0.04),
             blurRadius: 12,
-            offset:
-                const Offset(0, 4),
+            offset: const Offset(0, 5),
           ),
         ],
       ),
       child: Column(
-        crossAxisAlignment:
-            CrossAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
               Container(
-                padding:
-                    const EdgeInsets.all(9),
+                padding: const EdgeInsets.all(9),
                 decoration: BoxDecoration(
-                  color:
-                      const Color(0xFF134E39)
-                          .withOpacity(0.10),
-                  borderRadius:
-                      BorderRadius.circular(
-                    10,
-                  ),
+                  color: _kPrimary.withOpacity(0.12),
+                  borderRadius: BorderRadius.circular(10),
                 ),
                 child: const Icon(
-                  Icons.grass,
-                  color:
-                      Color(0xFF134E39),
-                  size: 20,
+                  Icons.grass_outlined,
+                  color: _kPrimary,
+                  size: 18,
                 ),
               ),
               const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  'Soil Status Distribution',
+                  style: GoogleFonts.poppins(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w600,
+                    color: Colors.black87,
+                  ),
+                ),
+              ),
               Text(
-                'Soil Condition History',
-                style:
-                    GoogleFonts.poppins(
-                  fontSize: 16,
-                  fontWeight:
-                      FontWeight.w600,
-                  color:
-                      const Color(0xFF1F2937),
+                'n = $total',
+                style: GoogleFonts.poppins(
+                  fontSize: 11,
+                  color: Colors.grey.shade600,
                 ),
               ),
             ],
           ),
-
-          const SizedBox(height: 16),
-
-          ..._logs.reversed
-              .take(10)
-              .map(
-            (
-              log,
-            ) {
-              final String soil =
-                  _getValue(
-                        log,
-                        'SoilStatus',
-                      )
-                      ?.toString()
-                      .toUpperCase() ??
-                  'UNKNOWN';
-
-              final String message =
-                  _soilMessage(
-                soil,
-              );
-
-              return Padding(
-                padding:
-                    const EdgeInsets.only(
-                  bottom: 10,
+          const SizedBox(height: 4),
+          Text(
+            'Distribution of SoilStatus values recorded in this range.',
+            style: GoogleFonts.poppins(
+              fontSize: 10.5,
+              color: Colors.grey.shade500,
+            ),
+          ),
+          const SizedBox(height: 14),
+          if (presentLabels.isEmpty)
+            Text(
+              'No soil readings in this range.',
+              style: GoogleFonts.poppins(
+                fontSize: 12,
+                color: Colors.grey.shade600,
+              ),
+            )
+          else
+            ...presentLabels.map(
+              (label) => Padding(
+                padding: const EdgeInsets.only(bottom: 12),
+                child: _soilBar(
+                  label,
+                  dist[label] ?? 0,
+                  total,
+                  _soilBarColor(label),
                 ),
-                child: Row(
-                  children: [
-                    Container(
-                      width: 10,
-                      height: 10,
-                      decoration:
-                          BoxDecoration(
-                        shape:
-                            BoxShape.circle,
-                        color:
-                            _soilColor(
-                          soil,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(
-                      width: 10,
-                    ),
-                    Expanded(
-                      child: Text(
-                        message,
-                        style:
-                            GoogleFonts.poppins(
-                          fontSize: 12,
-                          fontWeight:
-                              FontWeight.w500,
-                        ),
-                      ),
-                    ),
-                    Text(
-                      _formatTime(
-                        log,
-                      ),
-                      style:
-                          GoogleFonts.poppins(
-                        fontSize: 10,
-                        color: Colors
-                            .grey
-                            .shade600,
-                      ),
-                    ),
-                  ],
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Color _soilBarColor(String label) {
+    switch (label) {
+      case 'DRY':
+        return _kAmber;
+      case 'MOIST':
+        return _kPrimary;
+      case 'NORMAL':
+        return const Color(0xFF2F8F5B);
+      case 'WET':
+        return Colors.blue;
+      default:
+        return Colors.grey.shade500;
+    }
+  }
+
+  Widget _soilBar(String label, int count, int total, Color color) {
+    final double pct = total > 0 ? count / total : 0.0;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Container(
+              width: 10,
+              height: 10,
+              decoration: BoxDecoration(
+                color: color,
+                borderRadius: BorderRadius.circular(3),
+              ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: GoogleFonts.poppins(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                  color: Colors.black87,
                 ),
-              );
-            },
+              ),
+            ),
+            Text(
+              '$count',
+              style: GoogleFonts.poppins(
+                fontSize: 11,
+                fontWeight: FontWeight.w600,
+                color: Colors.grey.shade700,
+              ),
+            ),
+            const SizedBox(width: 8),
+            SizedBox(
+              width: 52,
+              child: Text(
+                '${(pct * 100).toStringAsFixed(1)}%',
+                textAlign: TextAlign.right,
+                style: GoogleFonts.poppins(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w500,
+                  color: Colors.grey.shade700,
+                ),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 6),
+        ClipRRect(
+          borderRadius: BorderRadius.circular(6),
+          child: Stack(
+            children: [
+              Container(
+                height: 8,
+                color: color.withOpacity(0.12),
+              ),
+              FractionallySizedBox(
+                widthFactor: pct,
+                child: Container(height: 8, color: color),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  // ============================================================
+  // WATERING INFO — neutral info card
+  // ============================================================
+
+  Widget _buildWateringInfoCard() {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: _kSurface,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.grey.shade200),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: _kSoftGreen,
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: const Icon(
+              Icons.info_outline,
+              color: _kPrimary,
+              size: 20,
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Watering Statistics',
+                  style: GoogleFonts.poppins(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                    color: Colors.black87,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  'Pump events are not currently included in SmartPlant/Logs, '
+                  'so historical irrigation statistics cannot be calculated.',
+                  style: GoogleFonts.poppins(
+                    fontSize: 11,
+                    color: Colors.grey.shade600,
+                    height: 1.4,
+                  ),
+                ),
+              ],
+            ),
           ),
         ],
       ),
     );
   }
 
-  String _soilMessage(
-    String soil,
-  ) {
+  // ============================================================
+  // RECENT SOIL READINGS
+  // ============================================================
+
+  Widget _buildRecentSoilReadings(List<Map<String, dynamic>> logs) {
+    final recent = logs.reversed.take(10).toList();
+
+    if (recent.isEmpty) return const SizedBox.shrink();
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: _kSurface,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: Colors.grey.shade200),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.04),
+            blurRadius: 12,
+            offset: const Offset(0, 5),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(9),
+                decoration: BoxDecoration(
+                  color: _kPrimary.withOpacity(0.12),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: const Icon(
+                  Icons.history_outlined,
+                  color: _kPrimary,
+                  size: 18,
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  'Recent Soil Readings',
+                  style: GoogleFonts.poppins(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w600,
+                    color: Colors.black87,
+                  ),
+                ),
+              ),
+              Text(
+                'latest ${recent.length}',
+                style: GoogleFonts.poppins(
+                  fontSize: 10.5,
+                  color: Colors.grey.shade500,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          ...recent.map((log) {
+            final soil =
+                _normalizeSoilStatus(_getValue(log, 'SoilStatus'));
+            final dt = _getTimestamp(log);
+
+            return Padding(
+              padding: const EdgeInsets.only(bottom: 10),
+              child: Row(
+                children: [
+                  Container(
+                    width: 10,
+                    height: 10,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: _soilColor(soil),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  SizedBox(
+                    width: 68,
+                    child: Text(
+                      soil,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: GoogleFonts.poppins(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w700,
+                        color: Colors.black87,
+                        letterSpacing: 0.2,
+                      ),
+                    ),
+                  ),
+                  Expanded(
+                    child: Text(
+                      _soilMessage(soil),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: GoogleFonts.poppins(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w500,
+                        color: Colors.grey.shade700,
+                      ),
+                    ),
+                  ),
+                  Text(
+                    _formatTime(dt),
+                    style: GoogleFonts.poppins(
+                      fontSize: 10,
+                      color: Colors.grey.shade600,
+                    ),
+                  ),
+                ],
+              ),
+            );
+          }),
+        ],
+      ),
+    );
+  }
+
+  String _soilMessage(String soil) {
     switch (soil) {
       case 'DRY':
         return 'Needs Water';
-
       case 'MOIST':
       case 'NORMAL':
         return 'Healthy';
-
       case 'WET':
         return 'Well Watered';
-
       default:
-        return soil;
+        return 'Unknown';
     }
   }
 
-  Color _soilColor(
-    String soil,
-  ) {
+  Color _soilColor(String soil) {
     switch (soil) {
       case 'DRY':
-        return Colors.red;
-
+        return _kAmber;
       case 'MOIST':
+        return _kPrimary;
       case 'NORMAL':
-        return Colors.green;
-
+        return const Color(0xFF2F8F5B);
       case 'WET':
         return Colors.blue;
-
       default:
         return Colors.grey;
     }
   }
 
   // ============================================================
-  // SCREEN
+  // INFO CARD (generic neutral)
   // ============================================================
 
-  @override
-  Widget build(
-    BuildContext context,
-  ) {
-    return Scaffold(
-      backgroundColor:
-          const Color(0xFFF5F7F6),
-
-      appBar: AppBar(
-        backgroundColor:
-            const Color(0xFF134E39),
-        foregroundColor:
-            Colors.white,
-        elevation: 0,
-        title: Text(
-          'Analytics',
-          style:
-              GoogleFonts.poppins(
-            fontSize: 19,
-            fontWeight:
-                FontWeight.w600,
-          ),
-        ),
-        actions: [
-          IconButton(
-            tooltip:
-                'Refresh',
-            onPressed:
-                _isLoading
-                    ? null
-                    : _loadLogs,
-            icon:
-                const Icon(
-              Icons.refresh,
+  Widget _buildInfoCard({required String title, required String subtitle}) {
+    return Container(
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: _kSurface,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.grey.shade200),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.info_outline, color: _kPrimary),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: GoogleFonts.poppins(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                    color: Colors.black87,
+                  ),
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  subtitle,
+                  style: GoogleFonts.poppins(
+                    fontSize: 11,
+                    color: Colors.grey.shade600,
+                    height: 1.4,
+                  ),
+                ),
+              ],
             ),
           ),
         ],
       ),
-
-      body: _isLoading
-          ? const Center(
-              child:
-                  CircularProgressIndicator(
-                color:
-                    Color(0xFF134E39),
-              ),
-            )
-          : _errorMessage != null
-              ? _buildErrorState()
-              : RefreshIndicator(
-                  color:
-                      const Color(0xFF134E39),
-                  onRefresh:
-                      _loadLogs,
-                  child:
-                      SingleChildScrollView(
-                    physics:
-                        const AlwaysScrollableScrollPhysics(),
-                    padding:
-                        const EdgeInsets.all(
-                      16,
-                    ),
-                    child: Column(
-                      crossAxisAlignment:
-                          CrossAxisAlignment.start,
-                      children: [
-                        _buildLatestReading(),
-
-                        Text(
-                          'Historical Sensor Data',
-                          style:
-                              GoogleFonts.poppins(
-                            fontSize: 18,
-                            fontWeight:
-                                FontWeight.w600,
-                            color:
-                                const Color(
-                              0xFF1F2937,
-                            ),
-                          ),
-                        ),
-
-                        const SizedBox(
-                          height: 4,
-                        ),
-
-                        Text(
-                          '${_logs.length} readings loaded',
-                          style:
-                              GoogleFonts.poppins(
-                            fontSize: 12,
-                            color:
-                                Colors.grey.shade600,
-                          ),
-                        ),
-
-                        const SizedBox(
-                          height: 16,
-                        ),
-
-                        _buildLineChart(
-                          title:
-                              'Temperature',
-                          unit:
-                              '°C',
-                          field:
-                              'Temperature',
-                          icon:
-                              Icons.thermostat,
-                        ),
-
-                        _buildLineChart(
-                          title:
-                              'Humidity',
-                          unit:
-                              '%',
-                          field:
-                              'Humidity',
-                          icon:
-                              Icons.water_drop,
-                        ),
-
-                        _buildLineChart(
-                          title:
-                              'Light Intensity',
-                          unit:
-                              'ADC',
-                          field:
-                              'LightIntensity',
-                          icon:
-                              Icons.wb_sunny,
-                        ),
-
-                        _buildSoilHistory(),
-
-                        const SizedBox(
-                          height: 10,
-                        ),
-
-                        Center(
-                          child: Text(
-                            'Data source: SmartPlant/Logs',
-                            style:
-                                GoogleFonts.poppins(
-                              fontSize: 10,
-                              color: Colors
-                                  .grey
-                                  .shade500,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
     );
   }
 
   // ============================================================
-  // ERROR STATE
+  // EMPTY / LOADING / ERROR
   // ============================================================
+
+  Widget _buildEmptyState() {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Container(
+          padding: const EdgeInsets.all(24),
+          decoration: BoxDecoration(
+            color: _kSurface,
+            borderRadius: BorderRadius.circular(18),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.04),
+                blurRadius: 12,
+                offset: const Offset(0, 5),
+              ),
+            ],
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: const BoxDecoration(
+                  color: _kSoftGreen,
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(
+                  Icons.insert_chart_outlined,
+                  color: _kPrimary,
+                  size: 32,
+                ),
+              ),
+              const SizedBox(height: 16),
+              Text(
+                'No historical data yet',
+                style: GoogleFonts.poppins(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w600,
+                  color: Colors.black87,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'Once your device starts recording sensor readings, '
+                'analytics will appear here.',
+                textAlign: TextAlign.center,
+                style: GoogleFonts.poppins(
+                  fontSize: 12,
+                  color: Colors.grey.shade600,
+                  height: 1.5,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildLoadingState() {
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Container(
+            padding: const EdgeInsets.all(18),
+            decoration: const BoxDecoration(
+              color: _kSoftGreen,
+              shape: BoxShape.circle,
+            ),
+            child: const SizedBox(
+              width: 28,
+              height: 28,
+              child: CircularProgressIndicator(
+                color: _kPrimary,
+                strokeWidth: 2.6,
+              ),
+            ),
+          ),
+          const SizedBox(height: 16),
+          Text(
+            'Loading historical data…',
+            style: GoogleFonts.poppins(
+              fontSize: 13,
+              fontWeight: FontWeight.w500,
+              color: Colors.grey.shade700,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            'Preparing your plant analytics',
+            style: GoogleFonts.poppins(
+              fontSize: 11,
+              color: Colors.grey.shade500,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 
   Widget _buildErrorState() {
     return Center(
       child: Padding(
-        padding:
-            const EdgeInsets.all(24),
+        padding: const EdgeInsets.all(24),
         child: Column(
-          mainAxisAlignment:
-              MainAxisAlignment.center,
+          mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(
-              Icons.error_outline,
-              size: 55,
-              color:
-                  Colors.red.shade400,
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: _kRed.withOpacity(0.10),
+                shape: BoxShape.circle,
+              ),
+              child: const Icon(
+                Icons.error_outline,
+                size: 36,
+                color: _kRed,
+              ),
             ),
-            const SizedBox(
-              height: 16,
-            ),
+            const SizedBox(height: 16),
             Text(
               'Could not load analytics',
-              textAlign:
-                  TextAlign.center,
-              style:
-                  GoogleFonts.poppins(
+              textAlign: TextAlign.center,
+              style: GoogleFonts.poppins(
                 fontSize: 17,
-                fontWeight:
-                    FontWeight.w600,
+                fontWeight: FontWeight.w600,
+                color: Colors.black87,
               ),
             ),
-            const SizedBox(
-              height: 8,
-            ),
+            const SizedBox(height: 8),
             Text(
-              _errorMessage ??
-                  'Unknown error',
-              textAlign:
-                  TextAlign.center,
-              style:
-                  GoogleFonts.poppins(
+              _errorMessage ?? 'Unknown error',
+              textAlign: TextAlign.center,
+              style: GoogleFonts.poppins(
                 fontSize: 12,
-                color: Colors
-                    .grey
-                    .shade600,
+                color: Colors.grey.shade600,
+                height: 1.5,
               ),
             ),
-            const SizedBox(
-              height: 20,
-            ),
+            const SizedBox(height: 20),
             ElevatedButton.icon(
-              onPressed:
-                  _loadLogs,
-              icon:
-                  const Icon(
-                Icons.refresh,
-              ),
-              label:
-                  const Text(
-                'Try Again',
-              ),
-              style:
-                  ElevatedButton.styleFrom(
-                backgroundColor:
-                    const Color(
-                  0xFF134E39,
+              onPressed: _loadLogs,
+              icon: const Icon(Icons.refresh),
+              label: const Text('Try Again'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: _kPrimary,
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 20,
+                  vertical: 12,
                 ),
-                foregroundColor:
-                    Colors.white,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
               ),
             ),
           ],
