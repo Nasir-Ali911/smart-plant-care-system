@@ -43,3 +43,23 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+
+# Python ML / Flask
+smart_plant_ml/.venv/
+smart_plant_ml/__pycache__/
+smart_plant_ml/**/__pycache__/
+smart_plant_ml/*.pyc
+
+# Firebase credentials - NEVER commit
+smart_plant_ml/firebase-service-account.json
+
+# Generated ML/API output
+smart_plant_ml/ml_output.json
+
+# Local test/generated files
+smart_plant_ml/test_record.json
+smart_plant_ml/*_results.csv
+
+
+# Local Firebase/ML dataset export
+smart_plant_ml/data/firebase_export.json

@@ -2,6 +2,7 @@ import 'dart:math' as math;
 
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import 'package:smart_plant_care/services/plant_service.dart';
@@ -35,6 +36,17 @@ extension _AnalyticsRangeX on _AnalyticsRange {
     }
   }
 
+  IconData get icon {
+    switch (this) {
+      case _AnalyticsRange.hours24:
+        return Icons.schedule;
+      case _AnalyticsRange.days7:
+        return Icons.date_range_outlined;
+      case _AnalyticsRange.days30:
+        return Icons.calendar_month_outlined;
+    }
+  }
+
   Duration get duration {
     switch (this) {
       case _AnalyticsRange.hours24:
@@ -44,6 +56,62 @@ extension _AnalyticsRangeX on _AnalyticsRange {
       case _AnalyticsRange.days30:
         return const Duration(days: 30);
     }
+  }
+}
+
+// ================================================================
+// ENTRANCE ANIMATION WRAPPER
+// ================================================================
+
+class _FadeSlideIn extends StatefulWidget {
+  final Widget child;
+  final Duration delay;
+
+  const _FadeSlideIn({
+    required this.child,
+    this.delay = Duration.zero,
+  });
+
+  @override
+  State<_FadeSlideIn> createState() => _FadeSlideInState();
+}
+
+class _FadeSlideInState extends State<_FadeSlideIn>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _c;
+  late final Animation<double> _fade;
+  late final Animation<Offset> _slide;
+
+  @override
+  void initState() {
+    super.initState();
+    _c = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 420),
+    );
+    _fade = CurvedAnimation(parent: _c, curve: Curves.easeOut);
+    _slide = Tween<Offset>(
+      begin: const Offset(0, 0.05),
+      end: Offset.zero,
+    ).animate(CurvedAnimation(parent: _c, curve: Curves.easeOutCubic));
+
+    Future.delayed(widget.delay, () {
+      if (mounted) _c.forward();
+    });
+  }
+
+  @override
+  void dispose() {
+    _c.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return FadeTransition(
+      opacity: _fade,
+      child: SlideTransition(position: _slide, child: widget.child),
+    );
   }
 }
 
@@ -186,11 +254,6 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
   // SOIL STATUS NORMALIZATION
   // ============================================================
 
-  /// Normalizes a raw SoilStatus value into one of:
-  /// DRY, MOIST, NORMAL, WET, UNKNOWN.
-  ///
-  /// - Trims whitespace and uppercases before comparison.
-  /// - Blank / null / unrecognized values map to UNKNOWN.
   String _normalizeSoilStatus(dynamic raw) {
     final String value = raw?.toString().trim().toUpperCase() ?? '';
 
@@ -212,7 +275,6 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
   // RANGE FILTERING + CHRONOLOGICAL SORT
   // ============================================================
 
-  /// Returns logs within the selected range, sorted oldest → newest.
   List<Map<String, dynamic>> _filteredLogs() {
     if (_rawLogs.isEmpty) return const [];
 
@@ -338,9 +400,6 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
     return spots;
   }
 
-  /// Adaptive "nice" Y-axis with clean min/max/interval values.
-  /// Handles constant-value datasets, small ranges, large ranges,
-  /// and negative values.
   ({double min, double max, double interval}) _adaptiveYAxis(
     List<FlSpot> spots,
   ) {
@@ -356,8 +415,6 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
       if (s.y > dataMax) dataMax = s.y;
     }
 
-    // Constant / near-constant dataset — build a small window around
-    // the value so the line doesn't sit on the axis floor.
     if ((dataMax - dataMin).abs() < 1e-6) {
       final mid = dataMax;
       final pad = mid.abs() < 1 ? 1.0 : mid.abs() * 0.05;
@@ -368,11 +425,9 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
     final double rawRange = dataMax - dataMin;
     final double step = _niceStep(rawRange, targetTicks: 4);
 
-    // Align min / max to the step grid.
     final double niceMin = (dataMin / step).floorToDouble() * step;
     final double niceMax = (dataMax / step).ceilToDouble() * step;
 
-    // Guard: if the aligned range collapsed, expand by one step.
     if (niceMax - niceMin < 1e-9) {
       return (min: niceMin, max: niceMin + step, interval: step);
     }
@@ -380,8 +435,6 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
     return (min: niceMin, max: niceMax, interval: step);
   }
 
-  /// Returns a "nice" step size (1, 2, 5 × 10ⁿ) covering `range`
-  /// with approximately `targetTicks` intervals.
   double _niceStep(double range, {int targetTicks = 4}) {
     if (range <= 0 || !range.isFinite) return 1;
 
@@ -404,15 +457,11 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
     return niceResidual * magnitude;
   }
 
-  /// X-axis tick interval in milliseconds. Derived from the actual
-  /// span of the plotted spots (not from fixed assumptions), so it
-  /// adapts to whatever data is actually present.
   double _bottomIntervalMs(
     List<FlSpot> spots,
     _AnalyticsRange range,
   ) {
     if (spots.length < 2) {
-      // Fall back to the range default when there's nothing to span.
       switch (range) {
         case _AnalyticsRange.hours24:
           return 6 * 60 * 60 * 1000;
@@ -435,11 +484,9 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
       }
     }
 
-    // Aim for roughly 4–6 ticks across the visible span.
     final double targetTicks = 5.0;
     final double rawStep = spanMs / targetTicks;
 
-    // Snap to friendly units.
     const double minute = 60 * 1000;
     const double hour = 60 * minute;
     const double day = 24 * hour;
@@ -459,7 +506,6 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
     return 30 * day;
   }
 
-  /// Y-axis label formatter: integer for ADC, 1 decimal otherwise.
   String _formatYLabel(double value, String field) {
     if (field == 'LightIntensity') {
       return value.toStringAsFixed(0);
@@ -475,24 +521,72 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: _kBackground,
-      appBar: AppBar(
-        backgroundColor: _kPrimary,
-        foregroundColor: Colors.white,
-        elevation: 0,
-        title: Text(
-          'Analytics',
-          style: GoogleFonts.poppins(
-            fontSize: 19,
-            fontWeight: FontWeight.w600,
+      appBar: PreferredSize(
+        preferredSize: const Size.fromHeight(kToolbarHeight + 8),
+        child: Container(
+          decoration: const BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [
+                Color(0xFF1A6B4E),
+                _kPrimary,
+                Color(0xFF0D3A2A),
+              ],
+            ),
+            borderRadius: BorderRadius.only(
+              bottomLeft: Radius.circular(20),
+              bottomRight: Radius.circular(20),
+            ),
+          ),
+          child: AppBar(
+            backgroundColor: Colors.transparent,
+            foregroundColor: Colors.white,
+            elevation: 0,
+            scrolledUnderElevation: 0,
+            centerTitle: false,
+            title: Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(7),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: 0.15),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: const Icon(
+                    Icons.analytics_outlined,
+                    size: 18,
+                    color: Colors.white,
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Text(
+                  'Analytics',
+                  style: GoogleFonts.poppins(
+                    fontSize: 19,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
+            ),
+            actions: [
+              IconButton(
+                tooltip: 'Refresh',
+                onPressed: _isLoading
+                    ? null
+                    : () {
+                        HapticFeedback.selectionClick();
+                        _loadLogs();
+                      },
+                icon: AnimatedRotation(
+                  turns: _isLoading ? 0.5 : 0,
+                  duration: const Duration(milliseconds: 600),
+                  child: const Icon(Icons.refresh),
+                ),
+              ),
+            ],
           ),
         ),
-        actions: [
-          IconButton(
-            tooltip: 'Refresh',
-            onPressed: _isLoading ? null : _loadLogs,
-            icon: const Icon(Icons.refresh),
-          ),
-        ],
       ),
       body: _buildBody(),
     );
@@ -528,9 +622,12 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            _buildHeader(),
+            _FadeSlideIn(child: _buildHeader()),
             const SizedBox(height: 18),
-            _buildRangeSelector(),
+            _FadeSlideIn(
+              delay: const Duration(milliseconds: 60),
+              child: _buildRangeSelector(),
+            ),
             const SizedBox(height: 18),
             ..._buildRangeContent(),
             const SizedBox(height: 24),
@@ -573,21 +670,40 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
               ),
             ),
             const SizedBox(width: 10),
-            Container(
-              padding: const EdgeInsets.symmetric(
-                horizontal: 10,
-                vertical: 5,
+            AnimatedSwitcher(
+              duration: const Duration(milliseconds: 250),
+              transitionBuilder: (child, animation) => FadeTransition(
+                opacity: animation,
+                child: ScaleTransition(scale: animation, child: child),
               ),
-              decoration: BoxDecoration(
-                color: _kSoftGreen,
-                borderRadius: BorderRadius.circular(20),
-              ),
-              child: Text(
-                '$countInRange readings',
-                style: GoogleFonts.poppins(
-                  fontSize: 11,
-                  fontWeight: FontWeight.w600,
-                  color: _kPrimary,
+              child: Container(
+                key: ValueKey('$countInRange-${_selectedRange.name}'),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 5,
+                ),
+                decoration: BoxDecoration(
+                  color: _kSoftGreen,
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(
+                      Icons.dataset_outlined,
+                      size: 12,
+                      color: _kPrimary,
+                    ),
+                    const SizedBox(width: 5),
+                    Text(
+                      '$countInRange readings',
+                      style: GoogleFonts.poppins(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w600,
+                        color: _kPrimary,
+                      ),
+                    ),
+                  ],
                 ),
               ),
             ),
@@ -612,7 +728,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
 
   Widget _buildRangeSelector() {
     return SizedBox(
-      height: 40,
+      height: 44,
       child: ListView(
         scrollDirection: Axis.horizontal,
         physics: const BouncingScrollPhysics(),
@@ -625,11 +741,13 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
             padding: const EdgeInsets.only(right: 8),
             child: _rangeChip(
               label: range.label,
+              icon: range.icon,
               selected: isSelected,
               enabled: isEnabled,
               onTap: isEnabled
                   ? () {
                       if (range == _selectedRange) return;
+                      HapticFeedback.selectionClick();
                       setState(() {
                         _selectedRange = range;
                       });
@@ -644,6 +762,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
 
   Widget _rangeChip({
     required String label,
+    required IconData icon,
     required bool selected,
     required bool enabled,
     required VoidCallback? onTap,
@@ -663,14 +782,15 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
     return Material(
       color: Colors.transparent,
       child: InkWell(
-        borderRadius: BorderRadius.circular(20),
+        borderRadius: BorderRadius.circular(22),
         onTap: onTap,
         child: AnimatedContainer(
-          duration: const Duration(milliseconds: 200),
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 9),
+          duration: const Duration(milliseconds: 220),
+          curve: Curves.easeOut,
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
           decoration: BoxDecoration(
             color: bg,
-            borderRadius: BorderRadius.circular(20),
+            borderRadius: BorderRadius.circular(22),
             border: Border.all(
               color: selected && enabled
                   ? _kPrimary
@@ -680,20 +800,27 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
             boxShadow: selected && enabled
                 ? [
                     BoxShadow(
-                      color: _kPrimary.withOpacity(0.18),
-                      blurRadius: 8,
-                      offset: const Offset(0, 3),
+                      color: _kPrimary.withValues(alpha: 0.22),
+                      blurRadius: 10,
+                      offset: const Offset(0, 4),
                     ),
                   ]
                 : null,
           ),
-          child: Text(
-            label,
-            style: GoogleFonts.poppins(
-              fontSize: 12,
-              fontWeight: FontWeight.w600,
-              color: fg,
-            ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(icon, size: 14, color: fg),
+              const SizedBox(width: 6),
+              Text(
+                label,
+                style: GoogleFonts.poppins(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                  color: fg,
+                ),
+              ),
+            ],
           ),
         ),
       ),
@@ -720,57 +847,104 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
     }
 
     return [
-      _buildLatestReading(logs),
+      _FadeSlideIn(
+        delay: const Duration(milliseconds: 120),
+        child: _buildLatestReading(logs),
+      ),
       const SizedBox(height: 12),
-      _buildContextRow(logs),
+      _FadeSlideIn(
+        delay: const Duration(milliseconds: 160),
+        child: _buildContextRow(logs),
+      ),
       const SizedBox(height: 22),
-      _buildSectionTitle('Summary Statistics'),
+      _FadeSlideIn(
+        delay: const Duration(milliseconds: 200),
+        child: _buildSectionTitle('Summary Statistics', icon: Icons.insights_outlined),
+      ),
       const SizedBox(height: 12),
-      _buildSummaryGrid(logs),
-      const SizedBox(height: 24),
-      _buildChartSection(
-        title: 'Temperature Trend',
-        unit: '°C',
-        field: 'Temperature',
-        icon: Icons.thermostat_outlined,
-        accent: Colors.orange,
-        logs: logs,
-      ),
-      const SizedBox(height: 18),
-      _buildChartSection(
-        title: 'Humidity Trend',
-        unit: '%',
-        field: 'Humidity',
-        icon: Icons.water_drop_outlined,
-        accent: Colors.blue,
-        logs: logs,
-      ),
-      const SizedBox(height: 18),
-      _buildChartSection(
-        title: 'Light Intensity Trend',
-        unit: 'ADC',
-        field: 'LightIntensity',
-        icon: Icons.wb_sunny_outlined,
-        accent: _kAmber,
-        logs: logs,
+      _FadeSlideIn(
+        delay: const Duration(milliseconds: 240),
+        child: _buildSummaryGrid(logs),
       ),
       const SizedBox(height: 24),
-      _buildSoilDistributionCard(logs),
+      _FadeSlideIn(
+        delay: const Duration(milliseconds: 280),
+        child: _buildChartSection(
+          title: 'Temperature Trend',
+          unit: '°C',
+          field: 'Temperature',
+          icon: Icons.thermostat_outlined,
+          accent: Colors.orange,
+          logs: logs,
+        ),
+      ),
       const SizedBox(height: 18),
-      _buildWateringInfoCard(),
+      _FadeSlideIn(
+        delay: const Duration(milliseconds: 320),
+        child: _buildChartSection(
+          title: 'Humidity Trend',
+          unit: '%',
+          field: 'Humidity',
+          icon: Icons.water_drop_outlined,
+          accent: Colors.blue,
+          logs: logs,
+        ),
+      ),
       const SizedBox(height: 18),
-      _buildRecentSoilReadings(logs),
+      _FadeSlideIn(
+        delay: const Duration(milliseconds: 360),
+        child: _buildChartSection(
+          title: 'Light Intensity Trend',
+          unit: 'ADC',
+          field: 'LightIntensity',
+          icon: Icons.wb_sunny_outlined,
+          accent: _kAmber,
+          logs: logs,
+        ),
+      ),
+      const SizedBox(height: 24),
+      _FadeSlideIn(
+        delay: const Duration(milliseconds: 400),
+        child: _buildSoilDistributionCard(logs),
+      ),
+      const SizedBox(height: 18),
+      _FadeSlideIn(
+        delay: const Duration(milliseconds: 440),
+        child: _buildWateringInfoCard(),
+      ),
+      const SizedBox(height: 18),
+      _FadeSlideIn(
+        delay: const Duration(milliseconds: 480),
+        child: _buildRecentSoilReadings(logs),
+      ),
     ];
   }
 
-  Widget _buildSectionTitle(String text) {
-    return Text(
-      text,
-      style: GoogleFonts.poppins(
-        fontSize: 17,
-        fontWeight: FontWeight.w700,
-        color: Colors.black87,
-      ),
+  Widget _buildSectionTitle(String text, {IconData? icon}) {
+    return Row(
+      children: [
+        if (icon != null) ...[
+          Container(
+            padding: const EdgeInsets.all(6),
+            decoration: BoxDecoration(
+              color: _kSoftGreen,
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Icon(icon, size: 14, color: _kPrimary),
+          ),
+          const SizedBox(width: 8),
+        ],
+        Expanded(
+          child: Text(
+            text,
+            style: GoogleFonts.poppins(
+              fontSize: 17,
+              fontWeight: FontWeight.w700,
+              color: Colors.black87,
+            ),
+          ),
+        ),
+      ],
     );
   }
 
@@ -788,7 +962,6 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
     final double? light =
         _toNullableDouble(_getValue(latest, 'LightIntensity'));
 
-    // Normalize — blank/null/unrecognized become UNKNOWN.
     final String soil =
         _normalizeSoilStatus(_getValue(latest, 'SoilStatus'));
 
@@ -797,13 +970,21 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
     return Container(
       padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
-        color: _kPrimary,
+        gradient: const LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            Color(0xFF1A6B4E),
+            _kPrimary,
+            Color(0xFF0D3A2A),
+          ],
+        ),
         borderRadius: BorderRadius.circular(20),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.08),
-            blurRadius: 12,
-            offset: const Offset(0, 5),
+            color: _kPrimary.withValues(alpha: 0.28),
+            blurRadius: 18,
+            offset: const Offset(0, 8),
           ),
         ],
       ),
@@ -812,8 +993,19 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
         children: [
           Row(
             children: [
-              const Icon(Icons.sensors, color: Colors.white, size: 20),
-              const SizedBox(width: 8),
+              Container(
+                padding: const EdgeInsets.all(7),
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: 0.18),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: const Icon(
+                  Icons.sensors,
+                  color: Colors.white,
+                  size: 18,
+                ),
+              ),
+              const SizedBox(width: 10),
               Expanded(
                 child: Text(
                   'Latest Reading',
@@ -890,8 +1082,11 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
       decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.10),
+        color: Colors.white.withValues(alpha: 0.10),
         borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: Colors.white.withValues(alpha: 0.12),
+        ),
       ),
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
@@ -965,15 +1160,22 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
         logs.isNotEmpty ? _getTimestamp(logs.last) : null;
 
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
       decoration: BoxDecoration(
         color: _kSurface,
         borderRadius: BorderRadius.circular(14),
         border: Border.all(color: Colors.grey.shade200),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.03),
+            blurRadius: 8,
+            offset: const Offset(0, 3),
+          ),
+        ],
       ),
       child: Wrap(
         spacing: 18,
-        runSpacing: 6,
+        runSpacing: 8,
         children: [
           _contextItem(
             Icons.dataset_outlined,
@@ -1085,10 +1287,10 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
       decoration: BoxDecoration(
         color: _kSurface,
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: iconColor.withOpacity(0.15), width: 1),
+        border: Border.all(color: iconColor.withValues(alpha: 0.15), width: 1),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.04),
+            color: Colors.black.withValues(alpha: 0.04),
             blurRadius: 10,
             offset: const Offset(0, 4),
           ),
@@ -1098,13 +1300,26 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Container(
-            padding: const EdgeInsets.all(8),
-            decoration: BoxDecoration(
-              color: iconColor.withOpacity(0.12),
-              borderRadius: BorderRadius.circular(10),
-            ),
-            child: Icon(icon, color: iconColor, size: 18),
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: iconColor.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Icon(icon, color: iconColor, size: 18),
+              ),
+              const Spacer(),
+              Container(
+                width: 6,
+                height: 6,
+                decoration: BoxDecoration(
+                  color: iconColor.withValues(alpha: 0.5),
+                  shape: BoxShape.circle,
+                ),
+              ),
+            ],
           ),
           const SizedBox(height: 8),
           Text(
@@ -1202,7 +1417,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
         border: Border.all(color: Colors.grey.shade200),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.04),
+            color: Colors.black.withValues(alpha: 0.04),
             blurRadius: 12,
             offset: const Offset(0, 5),
           ),
@@ -1216,7 +1431,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
               Container(
                 padding: const EdgeInsets.all(9),
                 decoration: BoxDecoration(
-                  color: accent.withOpacity(0.12),
+                  color: accent.withValues(alpha: 0.12),
                   borderRadius: BorderRadius.circular(10),
                 ),
                 child: Icon(icon, color: accent, size: 18),
@@ -1232,12 +1447,22 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                   ),
                 ),
               ),
-              Text(
-                unit,
-                style: GoogleFonts.poppins(
-                  fontSize: 12,
-                  color: Colors.grey.shade600,
-                  fontWeight: FontWeight.w500,
+              Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 8,
+                  vertical: 3,
+                ),
+                decoration: BoxDecoration(
+                  color: accent.withValues(alpha: 0.10),
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: Text(
+                  unit,
+                  style: GoogleFonts.poppins(
+                    fontSize: 11,
+                    color: accent,
+                    fontWeight: FontWeight.w600,
+                  ),
                 ),
               ),
             ],
@@ -1313,6 +1538,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                 ),
                 lineTouchData: LineTouchData(
                   touchTooltipData: LineTouchTooltipData(
+                    getTooltipColor: (spot) => _kPrimary,
                     getTooltipItems: (touchedSpots) {
                       return touchedSpots.map((spot) {
                         final dt = DateTime
@@ -1335,8 +1561,6 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                 lineBarsData: [
                   LineChartBarData(
                     spots: spots,
-                    // Straight segments — real observations only,
-                    // no interpolation/smoothing.
                     isCurved: false,
                     barWidth: 2.4,
                     color: accent,
@@ -1347,8 +1571,8 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                         begin: Alignment.topCenter,
                         end: Alignment.bottomCenter,
                         colors: [
-                          accent.withOpacity(0.22),
-                          accent.withOpacity(0.02),
+                          accent.withValues(alpha: 0.22),
+                          accent.withValues(alpha: 0.02),
                         ],
                       ),
                     ),
@@ -1382,7 +1606,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
         border: Border.all(color: Colors.grey.shade200),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.03),
+            color: Colors.black.withValues(alpha: 0.03),
             blurRadius: 10,
             offset: const Offset(0, 4),
           ),
@@ -1394,7 +1618,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
           Container(
             padding: const EdgeInsets.all(9),
             decoration: BoxDecoration(
-              color: accent.withOpacity(0.10),
+              color: accent.withValues(alpha: 0.10),
               borderRadius: BorderRadius.circular(10),
             ),
             child: Icon(icon, color: accent, size: 18),
@@ -1459,7 +1683,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
         border: Border.all(color: Colors.grey.shade200),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.04),
+            color: Colors.black.withValues(alpha: 0.04),
             blurRadius: 12,
             offset: const Offset(0, 5),
           ),
@@ -1473,7 +1697,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
               Container(
                 padding: const EdgeInsets.all(9),
                 decoration: BoxDecoration(
-                  color: _kPrimary.withOpacity(0.12),
+                  color: _kPrimary.withValues(alpha: 0.12),
                   borderRadius: BorderRadius.circular(10),
                 ),
                 child: const Icon(
@@ -1493,11 +1717,22 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                   ),
                 ),
               ),
-              Text(
-                'n = $total',
-                style: GoogleFonts.poppins(
-                  fontSize: 11,
-                  color: Colors.grey.shade600,
+              Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 8,
+                  vertical: 3,
+                ),
+                decoration: BoxDecoration(
+                  color: _kSoftGreen,
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: Text(
+                  'n = $total',
+                  style: GoogleFonts.poppins(
+                    fontSize: 10.5,
+                    color: _kPrimary,
+                    fontWeight: FontWeight.w600,
+                  ),
                 ),
               ),
             ],
@@ -1610,11 +1845,18 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
             children: [
               Container(
                 height: 8,
-                color: color.withOpacity(0.12),
+                color: color.withValues(alpha: 0.12),
               ),
-              FractionallySizedBox(
-                widthFactor: pct,
-                child: Container(height: 8, color: color),
+              TweenAnimationBuilder<double>(
+                duration: const Duration(milliseconds: 700),
+                curve: Curves.easeOutCubic,
+                tween: Tween(begin: 0, end: pct.clamp(0.0, 1.0)),
+                builder: (context, animValue, child) {
+                  return FractionallySizedBox(
+                    widthFactor: animValue,
+                    child: Container(height: 8, color: color),
+                  );
+                },
               ),
             ],
           ),
@@ -1634,6 +1876,13 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
         color: _kSurface,
         borderRadius: BorderRadius.circular(16),
         border: Border.all(color: Colors.grey.shade200),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.03),
+            blurRadius: 8,
+            offset: const Offset(0, 3),
+          ),
+        ],
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1698,7 +1947,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
         border: Border.all(color: Colors.grey.shade200),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.04),
+            color: Colors.black.withValues(alpha: 0.04),
             blurRadius: 12,
             offset: const Offset(0, 5),
           ),
@@ -1712,7 +1961,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
               Container(
                 padding: const EdgeInsets.all(9),
                 decoration: BoxDecoration(
-                  color: _kPrimary.withOpacity(0.12),
+                  color: _kPrimary.withValues(alpha: 0.12),
                   borderRadius: BorderRadius.circular(10),
                 ),
                 child: const Icon(
@@ -1732,71 +1981,130 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                   ),
                 ),
               ),
-              Text(
-                'latest ${recent.length}',
-                style: GoogleFonts.poppins(
-                  fontSize: 10.5,
-                  color: Colors.grey.shade500,
+              Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 8,
+                  vertical: 3,
+                ),
+                decoration: BoxDecoration(
+                  color: _kSoftGreen,
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: Text(
+                  'latest ${recent.length}',
+                  style: GoogleFonts.poppins(
+                    fontSize: 10,
+                    color: _kPrimary,
+                    fontWeight: FontWeight.w600,
+                  ),
                 ),
               ),
             ],
           ),
           const SizedBox(height: 14),
-          ...recent.map((log) {
+          ...recent.asMap().entries.map((entry) {
+            final int index = entry.key;
+            final log = entry.value;
+
             final soil =
                 _normalizeSoilStatus(_getValue(log, 'SoilStatus'));
             final dt = _getTimestamp(log);
+            final bool isLast = index == recent.length - 1;
 
-            return Padding(
-              padding: const EdgeInsets.only(bottom: 10),
+            return _recentRow(
+              soil: soil,
+              dt: dt,
+              isLast: isLast,
+            );
+          }),
+        ],
+      ),
+    );
+  }
+
+  Widget _recentRow({
+    required String soil,
+    required DateTime? dt,
+    required bool isLast,
+  }) {
+    final Color color = _soilColor(soil);
+
+    return IntrinsicHeight(
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Timeline dot + connector
+          Column(
+            children: [
+              Container(
+                width: 12,
+                height: 12,
+                margin: const EdgeInsets.only(top: 3),
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: Colors.white,
+                  border: Border.all(color: color, width: 2.5),
+                ),
+              ),
+              if (!isLast)
+                Expanded(
+                  child: Container(
+                    width: 2,
+                    margin: const EdgeInsets.symmetric(vertical: 3),
+                    color: Colors.grey.shade200,
+                  ),
+                ),
+            ],
+          ),
+          const SizedBox(width: 12),
+          // Content
+          Expanded(
+            child: Padding(
+              padding: EdgeInsets.only(bottom: isLast ? 0 : 14),
               child: Row(
                 children: [
-                  Container(
-                    width: 10,
-                    height: 10,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      color: _soilColor(soil),
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  SizedBox(
-                    width: 68,
-                    child: Text(
-                      soil,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: GoogleFonts.poppins(
-                        fontSize: 11,
-                        fontWeight: FontWeight.w700,
-                        color: Colors.black87,
-                        letterSpacing: 0.2,
-                      ),
-                    ),
-                  ),
                   Expanded(
-                    child: Text(
-                      _soilMessage(soil),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: GoogleFonts.poppins(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w500,
-                        color: Colors.grey.shade700,
-                      ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          soil,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: GoogleFonts.poppins(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w700,
+                            color: color,
+                            letterSpacing: 0.2,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          _soilMessage(soil),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: GoogleFonts.poppins(
+                            fontSize: 11.5,
+                            fontWeight: FontWeight.w500,
+                            color: Colors.grey.shade700,
+                          ),
+                        ),
+                      ],
                     ),
                   ),
+                  const SizedBox(width: 8),
                   Text(
                     _formatTime(dt),
                     style: GoogleFonts.poppins(
-                      fontSize: 10,
+                      fontSize: 10.5,
                       color: Colors.grey.shade600,
+                      fontWeight: FontWeight.w500,
                     ),
                   ),
                 ],
               ),
-            );
-          }),
+            ),
+          ),
         ],
       ),
     );
@@ -1842,6 +2150,13 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
         color: _kSurface,
         borderRadius: BorderRadius.circular(16),
         border: Border.all(color: Colors.grey.shade200),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.03),
+            blurRadius: 8,
+            offset: const Offset(0, 3),
+          ),
+        ],
       ),
       child: Row(
         children: [
@@ -1891,7 +2206,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
             borderRadius: BorderRadius.circular(18),
             boxShadow: [
               BoxShadow(
-                color: Colors.black.withOpacity(0.04),
+                color: Colors.black.withValues(alpha: 0.04),
                 blurRadius: 12,
                 offset: const Offset(0, 5),
               ),
@@ -1991,7 +2306,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
             Container(
               padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(
-                color: _kRed.withOpacity(0.10),
+                color: _kRed.withValues(alpha: 0.10),
                 shape: BoxShape.circle,
               ),
               child: const Icon(
@@ -2022,12 +2337,16 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
             ),
             const SizedBox(height: 20),
             ElevatedButton.icon(
-              onPressed: _loadLogs,
+              onPressed: () {
+                HapticFeedback.selectionClick();
+                _loadLogs();
+              },
               icon: const Icon(Icons.refresh),
               label: const Text('Try Again'),
               style: ElevatedButton.styleFrom(
                 backgroundColor: _kPrimary,
                 foregroundColor: Colors.white,
+                elevation: 0,
                 padding: const EdgeInsets.symmetric(
                   horizontal: 20,
                   vertical: 12,

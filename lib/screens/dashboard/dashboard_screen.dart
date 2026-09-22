@@ -2,6 +2,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_database/firebase_database.dart';
 import 'package:cloud_firestore/cloud_firestore.dart' hide Query;
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import 'package:smart_plant_care/screens/add_plant/add_plant_screen.dart';
@@ -13,6 +14,9 @@ import 'package:smart_plant_care/screens/plants/plants_screen.dart';
 
 import 'package:smart_plant_care/services/plant_service.dart';
 import 'package:smart_plant_care/services/ai_recommendation_service.dart';
+import 'package:smart_plant_care/services/ai_forecast_service.dart';
+
+import 'package:smart_plant_care/models/ai_forecast_model.dart';
 
 import 'package:smart_plant_care/screens/dashboard/widgets/quick_action_card.dart';
 import 'package:smart_plant_care/screens/dashboard/widgets/recent_activity_card.dart';
@@ -75,6 +79,62 @@ class _ActivityEntry {
 }
 
 // ================================================================
+// ANIMATED ENTRANCE HELPER
+// ================================================================
+
+class _FadeSlideIn extends StatefulWidget {
+  final Widget child;
+  final Duration delay;
+
+  const _FadeSlideIn({
+    required this.child,
+    this.delay = Duration.zero,
+  });
+
+  @override
+  State<_FadeSlideIn> createState() => _FadeSlideInState();
+}
+
+class _FadeSlideInState extends State<_FadeSlideIn>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _c;
+  late final Animation<double> _fade;
+  late final Animation<Offset> _slide;
+
+  @override
+  void initState() {
+    super.initState();
+    _c = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 420),
+    );
+    _fade = CurvedAnimation(parent: _c, curve: Curves.easeOut);
+    _slide = Tween<Offset>(
+      begin: const Offset(0, 0.06),
+      end: Offset.zero,
+    ).animate(CurvedAnimation(parent: _c, curve: Curves.easeOutCubic));
+
+    Future.delayed(widget.delay, () {
+      if (mounted) _c.forward();
+    });
+  }
+
+  @override
+  void dispose() {
+    _c.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return FadeTransition(
+      opacity: _fade,
+      child: SlideTransition(position: _slide, child: widget.child),
+    );
+  }
+}
+
+// ================================================================
 // DASHBOARD SCREEN
 // ================================================================
 
@@ -91,19 +151,27 @@ class _DashboardScreenState extends State<DashboardScreen> {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final PlantService _plantService = PlantService();
 
-  // ================================================================
+  // ==============================================================
   // FIREBASE REFERENCES
-  // ================================================================
+  // ==============================================================
 
   late final DatabaseReference _smartPlantRef;
   late final Query _logsQuery;
 
-  // ================================================================
+  // ==============================================================
+  // AI FORECAST
+  // ==============================================================
+
+  late Future<AiForecastModel> _aiForecastFuture;
+
+  // ==============================================================
   // UI STATE
-  // ================================================================
+  // ==============================================================
 
   int _currentIndex = 0;
+
   String _userName = 'User';
+
   bool _isLoadingProfile = true;
 
   @override
@@ -112,17 +180,30 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
     _smartPlantRef = _database.ref('SmartPlant');
 
-    // One realtime log query reused for:
-    // - AI dry-duration calculation
-    // - Recent activity
+    // Realtime historical log query.
+    //
+    // Used for:
+    // - dry-duration calculation
+    // - recent activity
+    // - AI recommendation context
     _logsQuery = _database.ref('SmartPlant/Logs').limitToLast(1500);
+
+    // ------------------------------------------------------------
+    // AI Soil Forecast
+    //
+    // IMPORTANT:
+    // Keep the Future in State instead of calling the API inside
+    // build(). Firebase stream rebuilds must not trigger repeated
+    // HTTP requests.
+    // ------------------------------------------------------------
+    _aiForecastFuture = AiForecastService.getForecast();
 
     _loadUserProfile();
   }
 
-  // ================================================================
+  // ==============================================================
   // USER PROFILE
-  // ================================================================
+  // ==============================================================
 
   Future<void> _loadUserProfile() async {
     try {
@@ -141,20 +222,30 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
       String name = '';
 
+      // ------------------------------------------------------------
+      // Firestore profile
+      // ------------------------------------------------------------
+
       try {
         final DocumentSnapshot snapshot =
             await _firestore.collection('users').doc(user.uid).get();
 
         if (snapshot.exists) {
-          final data = snapshot.data() as Map<String, dynamic>?;
+          final dynamic rawData = snapshot.data();
 
-          name = data?['name']?.toString() ??
-              data?['displayName']?.toString() ??
-              '';
+          if (rawData is Map<String, dynamic>) {
+            name = rawData['name']?.toString() ??
+                rawData['displayName']?.toString() ??
+                '';
+          }
         }
       } catch (_) {
-        // Fall back to Firebase Authentication.
+        // Firebase Auth fallback below.
       }
+
+      // ------------------------------------------------------------
+      // Firebase Authentication fallback
+      // ------------------------------------------------------------
 
       if (name.isEmpty) {
         name = user.displayName ?? '';
@@ -184,9 +275,27 @@ class _DashboardScreenState extends State<DashboardScreen> {
     }
   }
 
-  // ================================================================
+  // ==============================================================
+  // REFRESH AI FORECAST
+  // ==============================================================
+
+  Future<void> _refreshAiForecast() async {
+    if (!mounted) return;
+
+    setState(() {
+      _aiForecastFuture = AiForecastService.getForecast();
+    });
+
+    try {
+      await _aiForecastFuture;
+    } catch (_) {
+      // FutureBuilder will display the error state.
+    }
+  }
+
+  // ==============================================================
   // TEXT HELPERS
-  // ================================================================
+  // ==============================================================
 
   String _getGreeting() {
     final int hour = DateTime.now().hour;
@@ -202,25 +311,37 @@ class _DashboardScreenState extends State<DashboardScreen> {
     return 'Good Evening';
   }
 
+  // IMPORTANT:
+  // Firebase/ESP8266 may send:
+  // DRY
+  // MOIST
+  // NORMAL
+  // WET
+  // WET (Soil is fine)
+  //
+  // Therefore contains() is intentionally used here.
   String _getSoilStatusText(String status) {
-    switch (status.trim().toUpperCase()) {
-      case 'DRY':
-        return 'Needs Water';
+    final String value = status.trim().toUpperCase();
 
-      case 'MOIST':
-      case 'NORMAL':
-        return 'Healthy';
-
-      case 'WET':
-        return 'Well Watered';
-
-      default:
-        return '--';
+    if (value.contains('DRY')) {
+      return 'Needs Water';
     }
+
+    if (value.contains('MOIST') || value.contains('NORMAL')) {
+      return 'Healthy';
+    }
+
+    if (value.contains('WET')) {
+      return 'Well Watered';
+    }
+
+    return '--';
   }
 
   String _getTemperatureStatus(double? value) {
-    if (value == null) return '--';
+    if (value == null) {
+      return '--';
+    }
 
     if (value < 15) {
       return 'Cold';
@@ -234,7 +355,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   String _getHumidityStatus(double? value) {
-    if (value == null) return '--';
+    if (value == null) {
+      return '--';
+    }
 
     if (value < 40) {
       return 'Low';
@@ -248,7 +371,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   String _getLightStatus(double? value) {
-    if (value == null) return '--';
+    if (value == null) {
+      return '--';
+    }
 
     // Raw LDR ADC value.
     if (value < 300) {
@@ -262,12 +387,14 @@ class _DashboardScreenState extends State<DashboardScreen> {
     return 'Bright';
   }
 
-  // ================================================================
+  // ==============================================================
   // SAFE PARSERS
-  // ================================================================
+  // ==============================================================
 
   double _toDouble(dynamic value) {
-    if (value == null) return 0.0;
+    if (value == null) {
+      return 0.0;
+    }
 
     if (value is num) {
       return value.toDouble();
@@ -280,7 +407,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   int _toInt(dynamic value) {
-    if (value == null) return 0;
+    if (value == null) {
+      return 0;
+    }
 
     if (value is num) {
       return value.toInt();
@@ -293,7 +422,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   double? _toNullableDouble(dynamic value) {
-    if (value == null) return null;
+    if (value == null) {
+      return null;
+    }
 
     if (value is num) {
       return value.toDouble();
@@ -303,8 +434,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   DateTime? _parseTimestamp(dynamic value) {
-    if (value == null) return null;
+    if (value == null) {
+      return null;
+    }
 
+    // Numeric Firebase timestamp.
     if (value is num) {
       final int number = value.toInt();
 
@@ -319,34 +453,58 @@ class _DashboardScreenState extends State<DashboardScreen> {
       }
     }
 
-    return DateTime.tryParse(value.toString());
+    // String timestamp.
+    final DateTime? parsed = DateTime.tryParse(value.toString());
+
+    if (parsed != null) {
+      return parsed;
+    }
+
+    // Numeric string timestamp.
+    final int? numeric = int.tryParse(value.toString());
+
+    if (numeric != null) {
+      if (numeric > 100000000000) {
+        return DateTime.fromMillisecondsSinceEpoch(numeric);
+      }
+
+      if (numeric > 1000000000) {
+        return DateTime.fromMillisecondsSinceEpoch(numeric * 1000);
+      }
+    }
+
+    return null;
   }
+
+  // ==============================================================
+  // SOIL STATUS NORMALIZATION
+  // ==============================================================
 
   String _normalizeSoilStatus(dynamic raw) {
-    final String value =
-        raw?.toString().trim().toUpperCase() ?? '';
+    final String value = raw?.toString().trim().toUpperCase() ?? '';
 
-    switch (value) {
-      case 'DRY':
-        return 'DRY';
-
-      case 'MOIST':
-        return 'MOIST';
-
-      case 'NORMAL':
-        return 'NORMAL';
-
-      case 'WET':
-        return 'WET';
-
-      default:
-        return value.isEmpty ? '--' : value;
+    if (value.contains('DRY')) {
+      return 'DRY';
     }
+
+    if (value.contains('MOIST')) {
+      return 'MOIST';
+    }
+
+    if (value.contains('NORMAL')) {
+      return 'NORMAL';
+    }
+
+    if (value.contains('WET')) {
+      return 'WET';
+    }
+
+    return value.isEmpty ? '--' : value;
   }
 
-  // ================================================================
+  // ==============================================================
   // DRY DURATION — BACKWARD SCAN
-  // ================================================================
+  // ==============================================================
 
   double _calculateDryDurationHours(
     DataSnapshot? logSnapshot,
@@ -356,27 +514,24 @@ class _DashboardScreenState extends State<DashboardScreen> {
       return 0.0;
     }
 
-    final String currentSoil =
-        currentSoilStatus.trim().toUpperCase();
+    final String currentSoil = currentSoilStatus.trim().toUpperCase();
 
     if (!currentSoil.contains('DRY')) {
       return 0.0;
     }
 
-    final records = <Map<String, dynamic>>[];
+    final List<Map<String, dynamic>> records = [];
 
-    for (final child in logSnapshot.children) {
+    for (final DataSnapshot child in logSnapshot.children) {
       final dynamic data = child.value;
 
       if (data is Map) {
-        final DateTime? timestamp =
-            _parseTimestamp(data['Timestamp']);
+        final DateTime? timestamp = _parseTimestamp(data['Timestamp']);
 
         if (timestamp != null) {
           records.add({
             'timestamp': timestamp,
-            'soilStatus':
-                data['SoilStatus']?.toString() ?? '',
+            'soilStatus': data['SoilStatus']?.toString() ?? '',
           });
         }
       }
@@ -387,11 +542,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
     }
 
     records.sort((a, b) {
-      final DateTime first =
-          a['timestamp'] as DateTime;
-
-      final DateTime second =
-          b['timestamp'] as DateTime;
+      final DateTime first = a['timestamp'] as DateTime;
+      final DateTime second = b['timestamp'] as DateTime;
 
       return first.compareTo(second);
     });
@@ -400,10 +552,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
     for (int i = records.length - 1; i >= 0; i--) {
       final String status =
-          records[i]['soilStatus']
-              .toString()
-              .trim()
-              .toUpperCase();
+          records[i]['soilStatus'].toString().trim().toUpperCase();
 
       if (status.contains('DRY')) {
         dryStart = records[i]['timestamp'] as DateTime;
@@ -418,57 +567,45 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
     final DateTime now = DateTime.now();
 
-    final int minutes =
-        now.difference(dryStart).inMinutes;
+    final int minutes = now.difference(dryStart).inMinutes;
 
     final double hours = minutes / 60.0;
 
     return hours.clamp(0.0, 24.0).toDouble();
   }
 
-  // ================================================================
-  // RECENT ACTIVITY DATA HELPER
-  //
-  // IMPORTANT:
-  // This is deliberately named _getRecentActivity because
-  // _buildRecentActivity is already used by the UI builder below.
-  // ================================================================
+  // ==============================================================
+  // RECENT ACTIVITY DATA
+  // ==============================================================
 
-  List<_ActivityEntry> _getRecentActivity(
-    DataSnapshot? logSnapshot,
-  ) {
+  List<_ActivityEntry> _getRecentActivity(DataSnapshot? logSnapshot) {
     if (logSnapshot == null) {
       return const [];
     }
 
-    final entries = <_ActivityEntry>[];
+    final List<_ActivityEntry> entries = [];
 
-    for (final child in logSnapshot.children) {
+    for (final DataSnapshot child in logSnapshot.children) {
       final dynamic data = child.value;
 
       if (data is! Map) {
         continue;
       }
 
-      final DateTime? timestamp =
-          _parseTimestamp(data['Timestamp']);
+      final DateTime? timestamp = _parseTimestamp(data['Timestamp']);
 
-      final String soil =
-          data['SoilStatus']?.toString().trim() ?? '';
+      final String soil = data['SoilStatus']?.toString().trim() ?? '';
 
-      final dynamic temperature =
-          data['Temperature'];
+      final dynamic temperature = data['Temperature'];
 
-      final dynamic light =
-          data['LightIntensity'];
+      final dynamic light = data['LightIntensity'];
 
-      // --------------------------------------------------------------
+      // ------------------------------------------------------------
       // Soil activity
-      // --------------------------------------------------------------
+      // ------------------------------------------------------------
 
       if (soil.isNotEmpty) {
-        final String upper =
-            soil.toUpperCase();
+        final String upper = soil.toUpperCase();
 
         entries.add(
           _ActivityEntry(
@@ -482,23 +619,20 @@ class _DashboardScreenState extends State<DashboardScreen> {
             icon: upper.contains('WET')
                 ? Icons.water_outlined
                 : Icons.water_drop_outlined,
-            color: upper.contains('DRY')
-                ? _kAmber
-                : _kPrimary,
+            color: upper.contains('DRY') ? _kAmber : _kPrimary,
           ),
         );
       }
 
-      // --------------------------------------------------------------
+      // ------------------------------------------------------------
       // Temperature activity
-      // --------------------------------------------------------------
+      // ------------------------------------------------------------
 
       else if (temperature != null) {
         entries.add(
           _ActivityEntry(
             title: 'Temperature updated',
-            subtitle:
-                '${_toDouble(temperature).toStringAsFixed(1)}°C',
+            subtitle: '${_toDouble(temperature).toStringAsFixed(1)}°C',
             timestamp: timestamp,
             icon: Icons.thermostat_outlined,
             color: Colors.orange,
@@ -506,16 +640,15 @@ class _DashboardScreenState extends State<DashboardScreen> {
         );
       }
 
-      // --------------------------------------------------------------
+      // ------------------------------------------------------------
       // Light activity
-      // --------------------------------------------------------------
+      // ------------------------------------------------------------
 
       else if (light != null) {
         entries.add(
           _ActivityEntry(
             title: 'Light intensity updated',
-            subtitle:
-                '${_toInt(light)} ADC',
+            subtitle: '${_toInt(light)} ADC',
             timestamp: timestamp,
             icon: Icons.wb_sunny_outlined,
             color: Colors.amber,
@@ -551,8 +684,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
       return 'Logged';
     }
 
-    final Duration difference =
-        DateTime.now().difference(timestamp);
+    final Duration difference = DateTime.now().difference(timestamp);
+
+    if (difference.isNegative) {
+      return 'Just now';
+    }
 
     if (difference.inSeconds < 60) {
       return 'Just now';
@@ -569,16 +705,15 @@ class _DashboardScreenState extends State<DashboardScreen> {
     return '${difference.inDays} d ago';
   }
 
-  // ================================================================
-  // BUILD IMMUTABLE SNAPSHOT
-  // ================================================================
+  // ==============================================================
+  // BUILD DASHBOARD SNAPSHOT
+  // ==============================================================
 
   _DashboardSnapshot _buildSnapshot(
     DataSnapshot? sensorSnapshot,
     DataSnapshot? logSnapshot,
   ) {
-    final dynamic rawSensor =
-        sensorSnapshot?.value;
+    final dynamic rawSensor = sensorSnapshot?.value;
 
     double? temperature;
     double? humidity;
@@ -591,55 +726,41 @@ class _DashboardScreenState extends State<DashboardScreen> {
     bool? pumpManual;
 
     if (rawSensor is Map) {
-      temperature =
-          _toNullableDouble(
-        rawSensor['Temperature'],
-      );
+      temperature = _toNullableDouble(rawSensor['Temperature']);
 
-      humidity =
-          _toNullableDouble(
-        rawSensor['Humidity'],
-      );
+      humidity = _toNullableDouble(rawSensor['Humidity']);
 
-      lightIntensity =
-          _toNullableDouble(
-        rawSensor['LightIntensity'],
-      );
+      lightIntensity = _toNullableDouble(rawSensor['LightIntensity']);
 
-      soilStatus =
-          _normalizeSoilStatus(
-        rawSensor['SoilStatus'],
-      );
+      soilStatus = _normalizeSoilStatus(rawSensor['SoilStatus']);
 
-      final String deviceValue =
-          rawSensor['Device']?.toString() ?? '';
+      // ------------------------------------------------------------
+      // Device data availability
+      // ------------------------------------------------------------
 
-      deviceDataAvailable =
-          deviceValue.isNotEmpty;
+      final dynamic device = rawSensor['Device'];
+
+      deviceDataAvailable = device is Map
+          ? device.isNotEmpty
+          : device != null;
 
       // ------------------------------------------------------------
       // PumpManual parsing
       // ------------------------------------------------------------
 
-      final dynamic control =
-          rawSensor['Control'];
+      final dynamic control = rawSensor['Control'];
 
-      if (control is Map &&
-          control.containsKey('PumpManual')) {
-        final dynamic raw =
-            control['PumpManual'];
+      if (control is Map && control.containsKey('PumpManual')) {
+        final dynamic raw = control['PumpManual'];
 
         if (raw is bool) {
           pumpManual = raw;
         } else if (raw is num) {
           pumpManual = raw != 0;
         } else if (raw is String) {
-          final String lower =
-              raw.trim().toLowerCase();
+          final String lower = raw.trim().toLowerCase();
 
-          if (lower == 'true' ||
-              lower == '1' ||
-              lower == 'on') {
+          if (lower == 'true' || lower == '1' || lower == 'on') {
             pumpManual = true;
           } else if (lower == 'false' ||
               lower == '0' ||
@@ -650,32 +771,27 @@ class _DashboardScreenState extends State<DashboardScreen> {
       }
     }
 
-    // --------------------------------------------------------------
+    // ------------------------------------------------------------
     // Historical dry duration
-    // --------------------------------------------------------------
+    // ------------------------------------------------------------
 
     final double dryDurationHours =
-        _calculateDryDurationHours(
-      logSnapshot,
-      soilStatus,
-    );
+        _calculateDryDurationHours(logSnapshot, soilStatus);
 
-    // --------------------------------------------------------------
-    // Recommendation
+    // ------------------------------------------------------------
+    // AI recommendation
     //
-    // mlProbability intentionally remains null because the current
-    // experimental ML model has not been validated sufficiently.
-    // --------------------------------------------------------------
+    // This remains the rule-based recommendation system.
+    // The Random Forest forecast is displayed separately.
+    // ------------------------------------------------------------
 
     AIRecommendation? recommendation;
 
     if (rawSensor is Map) {
-      recommendation =
-          AIRecommendationService.generateRecommendation(
+      recommendation = AIRecommendationService.generateRecommendation(
         temperature: temperature ?? 0.0,
         humidity: humidity ?? 0.0,
-        lightIntensity:
-            (lightIntensity ?? 0).toInt(),
+        lightIntensity: (lightIntensity ?? 0).toInt(),
         soilStatus: soilStatus,
         dryDurationHours: dryDurationHours,
         mlProbability: null,
@@ -687,99 +803,79 @@ class _DashboardScreenState extends State<DashboardScreen> {
       humidity: humidity,
       lightIntensity: lightIntensity,
       soilStatus: soilStatus,
-      deviceDataAvailable:
-          deviceDataAvailable,
+      deviceDataAvailable: deviceDataAvailable,
       pumpManual: pumpManual,
-      dryDurationHours:
-          dryDurationHours,
-      aiRecommendation:
-          recommendation,
-      recentActivity:
-          _getRecentActivity(logSnapshot),
+      dryDurationHours: dryDurationHours,
+      aiRecommendation: recommendation,
+      recentActivity: _getRecentActivity(logSnapshot),
     );
   }
 
-  // ================================================================
+  // ==============================================================
   // NAVIGATION
-  // ================================================================
+  // ==============================================================
 
   Future<void> _openAnalytics() async {
     await Navigator.push(
       context,
-      MaterialPageRoute(
-        builder: (context) =>
-            const AnalyticsScreen(),
-      ),
+      MaterialPageRoute(builder: (context) => const AnalyticsScreen()),
     );
   }
 
   Future<void> _openAddPlant() async {
     await Navigator.push(
       context,
-      MaterialPageRoute(
-        builder: (context) =>
-            const AddPlantScreen(),
-      ),
+      MaterialPageRoute(builder: (context) => const AddPlantScreen()),
     );
   }
 
   Future<void> _openDeviceSetup() async {
     await Navigator.push(
       context,
-      MaterialPageRoute(
-        builder: (context) =>
-            const DeviceSetupScreen(),
-      ),
+      MaterialPageRoute(builder: (context) => const DeviceSetupScreen()),
     );
   }
 
   Future<void> _openNotifications() async {
     await Navigator.push(
       context,
-      MaterialPageRoute(
-        builder: (context) =>
-            const NotificationsScreen(),
-      ),
+      MaterialPageRoute(builder: (context) => const NotificationsScreen()),
     );
   }
 
   Future<void> _openProfile() async {
     await Navigator.push(
       context,
-      MaterialPageRoute(
-        builder: (context) =>
-            const ProfileScreen(),
-      ),
+      MaterialPageRoute(builder: (context) => const ProfileScreen()),
     );
   }
 
-  // ================================================================
+  // ==============================================================
   // MANUAL WATERING
-  // ================================================================
+  // ==============================================================
 
   Future<void> _startManualWatering() async {
     try {
-      await _plantService
-          .triggerManualWatering(true);
+      await _plantService.triggerManualWatering(true);
 
       if (!mounted) return;
 
-      ScaffoldMessenger.of(context)
-          .showSnackBar(
+      HapticFeedback.mediumImpact();
+
+      ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('Pump turned ON'),
-          duration:
-              Duration(seconds: 2),
+          duration: Duration(seconds: 2),
+          behavior: SnackBarBehavior.floating,
         ),
       );
     } catch (e) {
       if (!mounted) return;
 
-      ScaffoldMessenger.of(context)
-          .showSnackBar(
+      ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content:
-              Text('Unable to turn pump ON: $e'),
+          content: Text('Unable to turn pump ON: $e'),
+          behavior: SnackBarBehavior.floating,
         ),
       );
     }
@@ -787,27 +883,26 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   Future<void> _stopManualWatering() async {
     try {
-      await _plantService
-          .triggerManualWatering(false);
+      await _plantService.triggerManualWatering(false);
 
       if (!mounted) return;
 
-      ScaffoldMessenger.of(context)
-          .showSnackBar(
+      HapticFeedback.mediumImpact();
+
+      ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('Pump turned OFF'),
-          duration:
-              Duration(seconds: 2),
+          duration: Duration(seconds: 2),
+          behavior: SnackBarBehavior.floating,
         ),
       );
     } catch (e) {
       if (!mounted) return;
 
-      ScaffoldMessenger.of(context)
-          .showSnackBar(
+      ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content:
-              Text('Unable to turn pump OFF: $e'),
+          content: Text('Unable to turn pump OFF: $e'),
+          behavior: SnackBarBehavior.floating,
         ),
       );
     }
@@ -820,26 +915,81 @@ class _DashboardScreenState extends State<DashboardScreen> {
       context: context,
       builder: (dialogContext) {
         return AlertDialog(
-          title: const Text(
-            'Manual Watering',
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(20),
           ),
-          content: const Text(
-            'Control the water pump manually from here.',
+          titlePadding: const EdgeInsets.fromLTRB(20, 20, 20, 8),
+          contentPadding: const EdgeInsets.fromLTRB(20, 0, 20, 8),
+          actionsPadding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+          title: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: _kSoftGreen,
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: const Icon(
+                  Icons.water_drop_outlined,
+                  color: _kPrimary,
+                  size: 20,
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  'Manual Watering',
+                  style: GoogleFonts.poppins(
+                    fontWeight: FontWeight.w700,
+                    fontSize: 16,
+                    color: _kPrimary,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          content: Text(
+            'Control the water pump manually. This overrides any scheduled watering.',
+            style: GoogleFonts.poppins(
+              fontSize: 13,
+              height: 1.5,
+              color: Colors.grey.shade700,
+            ),
           ),
           actions: [
-            TextButton(
+            TextButton.icon(
               onPressed: () async {
                 Navigator.pop(dialogContext);
                 await _stopManualWatering();
               },
-              child: const Text('Pump OFF'),
+              icon: const Icon(Icons.power_settings_new, size: 18),
+              label: const Text('Pump OFF'),
+              style: TextButton.styleFrom(
+                foregroundColor: _kRed,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+              ),
             ),
-            ElevatedButton(
+            ElevatedButton.icon(
               onPressed: () async {
                 Navigator.pop(dialogContext);
                 await _startManualWatering();
               },
-              child: const Text('Pump ON'),
+              icon: const Icon(Icons.play_arrow_rounded, size: 18),
+              label: const Text('Pump ON'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: _kPrimary,
+                foregroundColor: Colors.white,
+                elevation: 0,
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 10,
+                ),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+              ),
             ),
           ],
         );
@@ -847,86 +997,109 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
-  // ================================================================
+  // ==============================================================
   // HOME SCREEN
-  // ================================================================
+  // ==============================================================
 
   Widget _buildHomeScreen() {
     return StreamBuilder<DatabaseEvent>(
       stream: _smartPlantRef.onValue,
       builder: (context, sensorAsync) {
-        if (sensorAsync.connectionState ==
-                ConnectionState.waiting &&
+        if (sensorAsync.connectionState == ConnectionState.waiting &&
             !sensorAsync.hasData) {
           return _buildLoadingScreen();
         }
 
         if (sensorAsync.hasError) {
-          return _buildErrorScreen(
-            sensorAsync.error.toString(),
-          );
+          return _buildErrorScreen(sensorAsync.error.toString());
         }
 
-        final DataSnapshot? sensorSnapshot =
-            sensorAsync.data?.snapshot;
+        final DataSnapshot? sensorSnapshot = sensorAsync.data?.snapshot;
 
         return StreamBuilder<DatabaseEvent>(
           stream: _logsQuery.onValue,
           builder: (context, logAsync) {
             final DataSnapshot? logSnapshot =
-                logAsync.hasError
-                    ? null
-                    : logAsync.data?.snapshot;
+                logAsync.hasError ? null : logAsync.data?.snapshot;
 
             final _DashboardSnapshot snapshot =
-                _buildSnapshot(
-              sensorSnapshot,
-              logSnapshot,
-            );
+                _buildSnapshot(sensorSnapshot, logSnapshot);
 
             return RefreshIndicator(
+              color: _kPrimary,
               onRefresh: () async {
                 try {
                   await _smartPlantRef.get();
                   await _logsQuery.get();
                 } catch (_) {}
+
+                // Refresh the Random Forest prediction as well.
+                await _refreshAiForecast();
+
+                if (!mounted) return;
+
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('Dashboard refreshed'),
+                    duration: Duration(seconds: 1),
+                    behavior: SnackBarBehavior.floating,
+                  ),
+                );
               },
               child: ListView(
-                physics:
-                    const AlwaysScrollableScrollPhysics(),
-                padding:
-                    const EdgeInsets.fromLTRB(
-                  16,
-                  12,
-                  16,
-                  100,
-                ),
+                physics: const AlwaysScrollableScrollPhysics(),
+                padding: const EdgeInsets.fromLTRB(16, 12, 16, 100),
                 children: [
-                  _buildHeader(),
+                  _FadeSlideIn(child: _buildHeader()),
 
-                  const SizedBox(height: 20),
+                  const SizedBox(height: 22),
 
-                  _buildHeroCard(snapshot),
-
-                  const SizedBox(height: 20),
-
-                  _buildAiSection(snapshot),
-
-                  const SizedBox(height: 24),
-
-                  _buildSensorCards(snapshot),
+                  _FadeSlideIn(
+                    delay: const Duration(milliseconds: 60),
+                    child: _buildHeroCard(snapshot),
+                  ),
 
                   const SizedBox(height: 24),
 
-                  _buildIrrigationCard(snapshot),
+                  _FadeSlideIn(
+                    delay: const Duration(milliseconds: 120),
+                    child: _buildAiSection(snapshot),
+                  ),
 
                   const SizedBox(height: 24),
 
-                  _buildQuickActions(),
+                  _FadeSlideIn(
+                    delay: const Duration(milliseconds: 180),
+                    child: _buildAiForecastSection(),
+                  ),
 
                   const SizedBox(height: 24),
 
-                  _buildRecentActivity(snapshot),
+                  _FadeSlideIn(
+                    delay: const Duration(milliseconds: 240),
+                    child: _buildSensorCards(snapshot),
+                  ),
+
+                  const SizedBox(height: 24),
+
+                  _FadeSlideIn(
+                    delay: const Duration(milliseconds: 300),
+                    child: _buildIrrigationCard(snapshot),
+                  ),
+
+                  const SizedBox(height: 24),
+
+                  _FadeSlideIn(
+                    delay: const Duration(milliseconds: 360),
+                    child: _buildQuickActions(),
+                  ),
+
+                  const SizedBox(height: 24),
+
+                  _FadeSlideIn(
+                    delay: const Duration(milliseconds: 420),
+                    child: _buildRecentActivity(snapshot),
+                  ),
                 ],
               ),
             );
@@ -936,17 +1109,16 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
-  // ================================================================
+  // ==============================================================
   // HEADER
-  // ================================================================
+  // ==============================================================
 
   Widget _buildHeader() {
     return Row(
       children: [
         Expanded(
           child: Column(
-            crossAxisAlignment:
-                CrossAxisAlignment.start,
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
                 _getGreeting(),
@@ -962,16 +1134,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 children: [
                   Flexible(
                     child: Text(
-                      _isLoadingProfile
-                          ? '...'
-                          : _userName,
+                      _isLoadingProfile ? '...' : _userName,
                       maxLines: 1,
-                      overflow:
-                          TextOverflow.ellipsis,
+                      overflow: TextOverflow.ellipsis,
                       style: GoogleFonts.poppins(
                         fontSize: 22,
-                        fontWeight:
-                            FontWeight.w700,
+                        fontWeight: FontWeight.w700,
                         color: _kPrimary,
                       ),
                     ),
@@ -981,8 +1149,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
                   const Text(
                     '👋',
-                    style:
-                        TextStyle(fontSize: 18),
+                    style: TextStyle(fontSize: 18),
                   ),
                 ],
               ),
@@ -993,10 +1160,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 'Smart Plant Care',
                 style: GoogleFonts.poppins(
                   fontSize: 12,
-                  fontWeight:
-                      FontWeight.w500,
-                  color:
-                      Colors.grey.shade500,
+                  fontWeight: FontWeight.w500,
+                  color: Colors.grey.shade500,
                   letterSpacing: 0.2,
                 ),
               ),
@@ -1004,80 +1169,105 @@ class _DashboardScreenState extends State<DashboardScreen> {
           ),
         ),
 
-        IconButton(
-          onPressed: _openNotifications,
-          icon: const Icon(
-            Icons.notifications_none_rounded,
-          ),
+        _headerIconButton(
+          icon: Icons.notifications_none_rounded,
+          onTap: _openNotifications,
         ),
 
-        IconButton(
-          onPressed: _openProfile,
-          icon: const Icon(
-            Icons.account_circle_outlined,
-          ),
+        const SizedBox(width: 6),
+
+        _headerIconButton(
+          icon: Icons.account_circle_outlined,
+          onTap: _openProfile,
         ),
       ],
     );
   }
 
-  // ================================================================
-  // HERO CARD
-  // ================================================================
-
-  Widget _buildHeroCard(
-    _DashboardSnapshot s,
-  ) {
-    final String soilText =
-        _getSoilStatusText(
-      s.soilStatus,
+  Widget _headerIconButton({
+    required IconData icon,
+    required VoidCallback onTap,
+  }) {
+    return Material(
+      color: Colors.white,
+      shape: const CircleBorder(),
+      elevation: 0,
+      child: InkWell(
+        customBorder: const CircleBorder(),
+        onTap: () {
+          HapticFeedback.selectionClick();
+          onTap();
+        },
+        child: Container(
+          width: 42,
+          height: 42,
+          decoration: BoxDecoration(
+            color: Colors.white,
+            shape: BoxShape.circle,
+            border: Border.all(color: Colors.grey.shade200),
+          ),
+          child: Icon(
+            icon,
+            color: _kPrimary,
+            size: 22,
+          ),
+        ),
+      ),
     );
+  }
 
-    final bool hasData =
-        s.temperature != null ||
+  // ==============================================================
+  // HERO CARD
+  // ==============================================================
+
+  Widget _buildHeroCard(_DashboardSnapshot s) {
+    final String soilText = _getSoilStatusText(s.soilStatus);
+
+    final bool hasData = s.temperature != null ||
         s.humidity != null ||
         s.lightIntensity != null ||
         s.soilStatus != '--';
 
     return Container(
-      padding:
-          const EdgeInsets.all(18),
+      padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        color: _kPrimary,
-        borderRadius:
-            BorderRadius.circular(20),
+        gradient: const LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            Color(0xFF1A6B4E),
+            _kPrimary,
+            Color(0xFF0D3A2A),
+          ],
+        ),
+        borderRadius: BorderRadius.circular(24),
         boxShadow: [
           BoxShadow(
-            color: Colors.black
-                .withValues(alpha: 0.08),
-            blurRadius: 12,
-            offset:
-                const Offset(0, 5),
+            color: _kPrimary.withValues(alpha: 0.28),
+            blurRadius: 20,
+            offset: const Offset(0, 8),
           ),
         ],
       ),
       child: Column(
-        crossAxisAlignment:
-            CrossAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
               Container(
-                width: 52,
-                height: 52,
-                decoration:
-                    BoxDecoration(
-                  color: Colors.white
-                      .withValues(
-                    alpha: 0.14,
+                width: 56,
+                height: 56,
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: 0.16),
+                  shape: BoxShape.circle,
+                  border: Border.all(
+                    color: Colors.white.withValues(alpha: 0.25),
                   ),
-                  shape:
-                      BoxShape.circle,
                 ),
                 child: const Icon(
                   Icons.eco_outlined,
                   color: Colors.white,
-                  size: 28,
+                  size: 30,
                 ),
               ),
 
@@ -1085,33 +1275,48 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
               Expanded(
                 child: Column(
-                  crossAxisAlignment:
-                      CrossAxisAlignment.start,
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
                       'Plant Monitoring',
-                      style:
-                          GoogleFonts.poppins(
-                        color:
-                            Colors.white,
+                      style: GoogleFonts.poppins(
+                        color: Colors.white,
                         fontSize: 18,
-                        fontWeight:
-                            FontWeight.w700,
+                        fontWeight: FontWeight.w700,
                       ),
                     ),
 
-                    const SizedBox(height: 2),
+                    const SizedBox(height: 3),
 
-                    Text(
-                      soilText == '--'
-                          ? 'Waiting for data'
-                          : soilText,
-                      style:
-                          GoogleFonts.poppins(
-                        color:
-                            Colors.white70,
-                        fontSize: 13,
-                      ),
+                    Row(
+                      children: [
+                        Container(
+                          width: 7,
+                          height: 7,
+                          decoration: BoxDecoration(
+                            color: hasData
+                                ? const Color(0xFF7CE0B0)
+                                : Colors.white54,
+                            shape: BoxShape.circle,
+                          ),
+                        ),
+
+                        const SizedBox(width: 6),
+
+                        Flexible(
+                          child: Text(
+                            soilText == '--'
+                                ? 'Waiting for data'
+                                : soilText,
+                            overflow: TextOverflow.ellipsis,
+                            style: GoogleFonts.poppins(
+                              color: Colors.white.withValues(alpha: 0.9),
+                              fontSize: 13,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
                   ],
                 ),
@@ -1119,7 +1324,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
             ],
           ),
 
-          const SizedBox(height: 16),
+          const SizedBox(height: 18),
 
           Wrap(
             spacing: 8,
@@ -1127,30 +1332,20 @@ class _DashboardScreenState extends State<DashboardScreen> {
             children: [
               _heroPill(
                 icon: Icons.sensors,
-                label:
-                    s.deviceDataAvailable
-                        ? 'Device data available'
-                        : 'No device data',
-                tone:
-                    s.deviceDataAvailable
-                        ? _kSoftGreen
-                        : Colors.white24,
-                textColor:
-                    s.deviceDataAvailable
-                        ? _kPrimary
-                        : Colors.white,
+                label: s.deviceDataAvailable
+                    ? 'Device online'
+                    : 'No device data',
+                tone: s.deviceDataAvailable
+                    ? Colors.white.withValues(alpha: 0.18)
+                    : Colors.white.withValues(alpha: 0.08),
+                textColor: Colors.white,
               ),
 
               _heroPill(
-                icon:
-                    Icons.cloud_done_outlined,
-                label: hasData
-                    ? 'Data available'
-                    : 'Waiting for data',
-                tone:
-                    Colors.white24,
-                textColor:
-                    Colors.white,
+                icon: Icons.cloud_done_outlined,
+                label: hasData ? 'Live data' : 'Waiting',
+                tone: Colors.white.withValues(alpha: 0.12),
+                textColor: Colors.white,
               ),
             ],
           ),
@@ -1166,20 +1361,16 @@ class _DashboardScreenState extends State<DashboardScreen> {
     required Color textColor,
   }) {
     return Container(
-      padding:
-          const EdgeInsets.symmetric(
+      padding: const EdgeInsets.symmetric(
         horizontal: 10,
         vertical: 6,
       ),
-      decoration:
-          BoxDecoration(
+      decoration: BoxDecoration(
         color: tone,
-        borderRadius:
-            BorderRadius.circular(20),
+        borderRadius: BorderRadius.circular(20),
       ),
       child: Row(
-        mainAxisSize:
-            MainAxisSize.min,
+        mainAxisSize: MainAxisSize.min,
         children: [
           Icon(
             icon,
@@ -1191,11 +1382,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
           Text(
             label,
-            style:
-                GoogleFonts.poppins(
+            style: GoogleFonts.poppins(
               fontSize: 11,
-              fontWeight:
-                  FontWeight.w600,
+              fontWeight: FontWeight.w600,
               color: textColor,
             ),
           ),
@@ -1204,80 +1393,62 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
-  // ================================================================
-  // AI RECOMMENDATION
-  // ================================================================
+  // ==============================================================
+  // EXISTING AI RECOMMENDATION
+  // ==============================================================
 
-  Widget _buildAiSection(
-    _DashboardSnapshot s,
-  ) {
+  Widget _buildAiSection(_DashboardSnapshot s) {
     return Column(
-      crossAxisAlignment:
-          CrossAxisAlignment.start,
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         _sectionTitle(
           'AI Watering Recommendation',
+          icon: Icons.auto_awesome,
         ),
 
-        const SizedBox(height: 10),
+        const SizedBox(height: 12),
 
         if (s.aiRecommendation == null)
           _unavailableCard(
             'Waiting for current Firebase sensor data...',
           )
         else
-          _aiCard(
-            s.aiRecommendation!,
-          ),
+          _aiCard(s.aiRecommendation!),
       ],
     );
   }
 
-  Widget _aiCard(
-    AIRecommendation rec,
-  ) {
-    final Color urgencyColor =
-        _urgencyColor(rec.urgency);
+  Widget _aiCard(AIRecommendation rec) {
+    final Color urgencyColor = _urgencyColor(rec.urgency);
 
     return Container(
       width: double.infinity,
-      padding:
-          const EdgeInsets.all(18),
+      padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
         color: _kSurface,
-        borderRadius:
-            BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(18),
         border: Border.all(
-          color: urgencyColor
-              .withValues(alpha: 0.18),
+          color: urgencyColor.withValues(alpha: 0.18),
           width: 1.2,
         ),
         boxShadow: [
           BoxShadow(
-            color: Colors.black
-                .withValues(alpha: 0.04),
+            color: Colors.black.withValues(alpha: 0.04),
             blurRadius: 12,
-            offset:
-                const Offset(0, 5),
+            offset: const Offset(0, 5),
           ),
         ],
       ),
       child: Column(
-        crossAxisAlignment:
-            CrossAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
               Container(
-                padding:
-                    const EdgeInsets.all(10),
-                decoration:
-                    BoxDecoration(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
                   color: _kSoftGreen,
-                  borderRadius:
-                      BorderRadius.circular(
-                    12,
-                  ),
+                  borderRadius: BorderRadius.circular(12),
                 ),
                 child: const Icon(
                   Icons.auto_awesome,
@@ -1291,11 +1462,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
               Expanded(
                 child: Text(
                   rec.title,
-                  style:
-                      GoogleFonts.poppins(
+                  style: GoogleFonts.poppins(
                     fontSize: 16,
-                    fontWeight:
-                        FontWeight.w700,
+                    fontWeight: FontWeight.w700,
                     color: _kPrimary,
                   ),
                 ),
@@ -1307,8 +1476,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
           Text(
             rec.message,
-            style:
-                GoogleFonts.poppins(
+            style: GoogleFonts.poppins(
               fontSize: 12.5,
               height: 1.5,
               color: Colors.black87,
@@ -1322,10 +1490,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
               Expanded(
                 child: _metricBox(
                   label: 'Score',
-                  value:
-                      '${rec.score.toStringAsFixed(0)}/100',
-                  valueColor:
-                      _kPrimary,
+                  value: '${rec.score.toStringAsFixed(0)}/100',
+                  valueColor: _kPrimary,
                 ),
               ),
 
@@ -1334,10 +1500,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
               Expanded(
                 child: _metricBox(
                   label: 'Urgency',
-                  value:
-                      rec.urgency,
-                  valueColor:
-                      urgencyColor,
+                  value: rec.urgency,
+                  valueColor: urgencyColor,
                 ),
               ),
             ],
@@ -1347,13 +1511,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
           Text(
             'Based on current sensor readings and historical soil trends.',
-            style:
-                GoogleFonts.poppins(
+            style: GoogleFonts.poppins(
               fontSize: 10.5,
-              fontStyle:
-                  FontStyle.italic,
-              color:
-                  Colors.grey.shade600,
+              fontStyle: FontStyle.italic,
+              color: Colors.grey.shade600,
             ),
           ),
         ],
@@ -1361,31 +1522,621 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
+  // ==============================================================
+  // NEW AI SOIL FORECAST
+  // ==============================================================
+
+  Widget _buildAiForecastSection() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _sectionTitle(
+          'AI Soil Forecast',
+          icon: Icons.insights_outlined,
+        ),
+
+        const SizedBox(height: 12),
+
+        FutureBuilder<AiForecastModel>(
+          future: _aiForecastFuture,
+          builder: (context, snapshot) {
+            // ------------------------------------------------------
+            // Loading
+            // ------------------------------------------------------
+
+            if (snapshot.connectionState == ConnectionState.waiting) {
+              return _unavailableCard('Loading AI soil forecast...');
+            }
+
+            // ------------------------------------------------------
+            // Error
+            // ------------------------------------------------------
+
+            if (snapshot.hasError) {
+              return _aiForecastErrorCard(snapshot.error);
+            }
+
+            // ------------------------------------------------------
+            // Missing data
+            // ------------------------------------------------------
+
+            final AiForecastModel? forecast = snapshot.data;
+
+            if (forecast == null) {
+              return _unavailableCard('No AI forecast available.');
+            }
+
+            if (!forecast.success) {
+              return _unavailableCard(
+                'AI forecast could not be generated.',
+              );
+            }
+
+            // ------------------------------------------------------
+            // Forecast available
+            // ------------------------------------------------------
+
+            return _aiForecastCard(forecast);
+          },
+        ),
+      ],
+    );
+  }
+
+  Widget _aiForecastCard(AiForecastModel forecast) {
+    final bool forecastDry =
+        forecast.forecastSoilStatus.toUpperCase().contains('DRY');
+
+    final Color forecastColor = forecastDry ? _kAmber : _kPrimary;
+
+    final IconData forecastIcon = forecastDry
+        ? Icons.warning_amber_rounded
+        : Icons.check_circle_outline;
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: _kSurface,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(
+          color: forecastColor.withValues(alpha: 0.20),
+          width: 1.2,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.04),
+            blurRadius: 12,
+            offset: const Offset(0, 5),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // --------------------------------------------------------
+          // Header
+          // --------------------------------------------------------
+
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: _kSoftGreen,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: const Icon(
+                  Icons.auto_awesome,
+                  color: _kPrimary,
+                  size: 22,
+                ),
+              ),
+
+              const SizedBox(width: 12),
+
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Random Forest Forecast',
+                      style: GoogleFonts.poppins(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w700,
+                        color: _kPrimary,
+                      ),
+                    ),
+
+                    const SizedBox(height: 2),
+
+                    Text(
+                      'Predictive soil-state analysis',
+                      style: GoogleFonts.poppins(
+                        fontSize: 11,
+                        color: Colors.grey.shade600,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+
+              Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 9,
+                  vertical: 6,
+                ),
+                decoration: BoxDecoration(
+                  color: forecastColor.withValues(alpha: 0.10),
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      forecastIcon,
+                      size: 15,
+                      color: forecastColor,
+                    ),
+                    const SizedBox(width: 4),
+                    Text(
+                      forecast.forecastSoilStatus,
+                      style: GoogleFonts.poppins(
+                        fontSize: 10,
+                        fontWeight: FontWeight.w700,
+                        color: forecastColor,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+
+          const SizedBox(height: 16),
+
+          // --------------------------------------------------------
+          // Current vs forecast
+          // --------------------------------------------------------
+
+          Row(
+            children: [
+              Expanded(
+                child: _forecastMetricBox(
+                  label: 'Current Soil',
+                  value: forecast.currentSoilStatus,
+                  valueColor: _kPrimary,
+                  icon: Icons.water_drop_outlined,
+                ),
+              ),
+
+              const SizedBox(width: 10),
+
+              Expanded(
+                child: _forecastMetricBox(
+                  label: 'Forecast',
+                  value: forecast.forecastSoilStatus,
+                  valueColor: forecastColor,
+                  icon: forecastDry
+                      ? Icons.warning_amber_outlined
+                      : Icons.check_circle_outline,
+                ),
+              ),
+            ],
+          ),
+
+          const SizedBox(height: 12),
+
+          // --------------------------------------------------------
+          // Probability bar
+          // --------------------------------------------------------
+
+          Container(
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: _kSoftGreenAlt,
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Text(
+                      'Dry Probability',
+                      style: GoogleFonts.poppins(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w600,
+                        color: Colors.grey.shade700,
+                      ),
+                    ),
+
+                    const Spacer(),
+
+                    Text(
+                      '${(forecast.dryProbability * 100).toStringAsFixed(1)}%',
+                      style: GoogleFonts.poppins(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w700,
+                        color: _kAmber,
+                      ),
+                    ),
+                  ],
+                ),
+
+                const SizedBox(height: 8),
+
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(8),
+                  child: LinearProgressIndicator(
+                    value: forecast.dryProbability.clamp(0.0, 1.0),
+                    minHeight: 8,
+                    backgroundColor:
+                        _kPrimary.withValues(alpha: 0.10),
+                    valueColor: AlwaysStoppedAnimation<Color>(
+                      forecastDry ? _kAmber : _kPrimary,
+                    ),
+                  ),
+                ),
+
+                const SizedBox(height: 12),
+
+                Row(
+                  children: [
+                    Expanded(
+                      child: _metricBox(
+                        label: 'Wet Probability',
+                        value:
+                            '${(forecast.wetProbability * 100).toStringAsFixed(1)}%',
+                        valueColor: _kPrimary,
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+
+          const SizedBox(height: 12),
+
+          // --------------------------------------------------------
+          // Forecast horizon
+          // --------------------------------------------------------
+
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: _kSoftGreenAlt,
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Row(
+              children: [
+                const Icon(
+                  Icons.schedule_outlined,
+                  size: 19,
+                  color: _kPrimary,
+                ),
+
+                const SizedBox(width: 8),
+
+                Text(
+                  'Forecast horizon',
+                  style: GoogleFonts.poppins(
+                    fontSize: 11,
+                    color: Colors.grey.shade600,
+                  ),
+                ),
+
+                const Spacer(),
+
+                Text(
+                  '${forecast.horizonMinutes} minutes',
+                  style: GoogleFonts.poppins(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w700,
+                    color: _kPrimary,
+                  ),
+                ),
+              ],
+            ),
+          ),
+
+          const SizedBox(height: 14),
+
+          // --------------------------------------------------------
+          // Recommendation
+          // --------------------------------------------------------
+
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(13),
+            decoration: BoxDecoration(
+              color: forecastDry
+                  ? _kAmber.withValues(alpha: 0.08)
+                  : _kSoftGreen,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(
+                color: forecastDry
+                    ? _kAmber.withValues(alpha: 0.15)
+                    : _kPrimary.withValues(alpha: 0.12),
+              ),
+            ),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Icon(
+                  forecastDry
+                      ? Icons.water_drop_outlined
+                      : Icons.check_circle_outline,
+                  size: 20,
+                  color: forecastColor,
+                ),
+
+                const SizedBox(width: 9),
+
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'AI Recommendation',
+                        style: GoogleFonts.poppins(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w700,
+                          color: forecastColor,
+                        ),
+                      ),
+
+                      const SizedBox(height: 3),
+
+                      Text(
+                        forecast.recommendation,
+                        style: GoogleFonts.poppins(
+                          fontSize: 12,
+                          height: 1.45,
+                          color: Colors.black87,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+
+          const SizedBox(height: 14),
+
+          // --------------------------------------------------------
+          // Advisory-only notice
+          // --------------------------------------------------------
+
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: Colors.grey.shade50,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(
+                color: Colors.grey.shade200,
+              ),
+            ),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Icon(
+                  Icons.info_outline,
+                  size: 18,
+                  color: Colors.grey.shade700,
+                ),
+
+                const SizedBox(width: 8),
+
+                Expanded(
+                  child: Text(
+                    'Advisory only — AI forecast does not control the water pump. Pump operation remains manual.',
+                    style: GoogleFonts.poppins(
+                      fontSize: 10.5,
+                      height: 1.45,
+                      color: Colors.grey.shade700,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+
+          const SizedBox(height: 12),
+
+          // --------------------------------------------------------
+          // Model + timestamp
+          // --------------------------------------------------------
+
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  'Model: ${forecast.model}',
+                  style: GoogleFonts.poppins(
+                    fontSize: 10,
+                    color: Colors.grey.shade600,
+                  ),
+                ),
+              ),
+
+              const SizedBox(width: 8),
+
+              Flexible(
+                child: Text(
+                  'Data: ${forecast.timestamp}',
+                  textAlign: TextAlign.right,
+                  overflow: TextOverflow.ellipsis,
+                  style: GoogleFonts.poppins(
+                    fontSize: 10,
+                    color: Colors.grey.shade600,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _forecastMetricBox({
+    required String label,
+    required String value,
+    required Color valueColor,
+    required IconData icon,
+  }) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: _kSoftGreenAlt,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Row(
+        children: [
+          Icon(
+            icon,
+            size: 18,
+            color: valueColor,
+          ),
+
+          const SizedBox(width: 8),
+
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  label,
+                  style: GoogleFonts.poppins(
+                    fontSize: 10,
+                    color: Colors.grey.shade600,
+                  ),
+                ),
+
+                const SizedBox(height: 3),
+
+                Text(
+                  value,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: GoogleFonts.poppins(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w700,
+                    color: valueColor,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _aiForecastErrorCard(Object? error) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: _kSurface,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(
+          color: Colors.orange.shade100,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.03),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: Colors.orange.withValues(alpha: 0.10),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: const Icon(
+                  Icons.cloud_off_outlined,
+                  color: _kAmber,
+                  size: 22,
+                ),
+              ),
+
+              const SizedBox(width: 12),
+
+              Expanded(
+                child: Text(
+                  'AI Forecast Unavailable',
+                  style: GoogleFonts.poppins(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w700,
+                    color: _kPrimary,
+                  ),
+                ),
+              ),
+            ],
+          ),
+
+          const SizedBox(height: 10),
+
+          Text(
+            'Make sure the Python Flask AI API is running and the device is connected to the same network.',
+            style: GoogleFonts.poppins(
+              fontSize: 12,
+              height: 1.45,
+              color: Colors.grey.shade700,
+            ),
+          ),
+
+          const SizedBox(height: 8),
+
+          Text(
+            'API: http://192.168.1.152:5000/api/soil-forecast',
+            style: GoogleFonts.poppins(
+              fontSize: 9.5,
+              color: Colors.grey.shade500,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ==============================================================
+  // METRIC BOX
+  // ==============================================================
+
   Widget _metricBox({
     required String label,
     required String value,
     required Color valueColor,
   }) {
     return Container(
-      padding:
-          const EdgeInsets.all(12),
-      decoration:
-          BoxDecoration(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
         color: _kSoftGreenAlt,
-        borderRadius:
-            BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(12),
       ),
       child: Column(
-        crossAxisAlignment:
-            CrossAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
             label,
-            style:
-                GoogleFonts.poppins(
+            style: GoogleFonts.poppins(
               fontSize: 11,
-              color:
-                  Colors.grey.shade600,
+              color: Colors.grey.shade600,
             ),
           ),
 
@@ -1393,11 +2144,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
           Text(
             value,
-            style:
-                GoogleFonts.poppins(
+            style: GoogleFonts.poppins(
               fontSize: 18,
-              fontWeight:
-                  FontWeight.w700,
+              fontWeight: FontWeight.w700,
               color: valueColor,
             ),
           ),
@@ -1406,11 +2155,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
-  Color _urgencyColor(
-    String urgency,
-  ) {
-    switch (
-        urgency.toUpperCase()) {
+  Color _urgencyColor(String urgency) {
+    switch (urgency.toUpperCase()) {
       case 'HIGH':
         return _kRed;
 
@@ -1422,19 +2168,33 @@ class _DashboardScreenState extends State<DashboardScreen> {
     }
   }
 
-  // ================================================================
+  // ==============================================================
   // LIVE ENVIRONMENT
-  // ================================================================
+  // ==============================================================
 
-  Widget _buildSensorCards(
-    _DashboardSnapshot s,
-  ) {
+  Widget _buildSensorCards(_DashboardSnapshot s) {
+    final double temperature = s.temperature ?? 0.0;
+
+    final double humidity = s.humidity ?? 0.0;
+
+    final double light = s.lightIntensity ?? 0.0;
+
+    final String soilStatus = _getSoilStatusText(s.soilStatus);
+
+    final bool hasTemperature = s.temperature != null;
+
+    final bool hasHumidity = s.humidity != null;
+
+    final bool hasLight = s.lightIntensity != null;
+
+    final bool hasSoil = s.soilStatus != '--';
+
     return Column(
-      crossAxisAlignment:
-          CrossAxisAlignment.start,
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         _sectionTitle(
           'Live Environment',
+          icon: Icons.sensors_outlined,
         ),
 
         const SizedBox(height: 12),
@@ -1445,94 +2205,98 @@ class _DashboardScreenState extends State<DashboardScreen> {
           mainAxisSpacing: 12,
           childAspectRatio: 1.45,
           shrinkWrap: true,
-          physics:
-              const NeverScrollableScrollPhysics(),
+          physics: const NeverScrollableScrollPhysics(),
           children: [
+            // ------------------------------------------------------
+            // Temperature
+            // ------------------------------------------------------
+
             SensorCard(
               title: 'Temperature',
-              value: s.temperature != null
-                  ? s.temperature!
-                      .toStringAsFixed(1)
-                  : '--',
+              value: hasTemperature
+                  ? temperature.toStringAsFixed(1)
+                  : '---',
               unit: '°C',
-              icon:
-                  Icons.thermostat_outlined,
-              iconColor:
-                  Colors.orange,
-              status:
-                  _getTemperatureStatus(
-                s.temperature,
-              ),
-              isLoading:
-                  s.temperature == null,
-              isActive:
-                  s.temperature != null,
+              icon: Icons.thermostat_outlined,
+              iconColor: Colors.deepOrange,
+              status: hasTemperature
+                  ? _getTemperatureStatus(temperature)
+                  : 'Waiting',
+              statusColor: hasTemperature
+                  ? _getTemperatureStatus(temperature) == 'Normal'
+                      ? _kPrimary
+                      : _kAmber
+                  : Colors.grey,
+              isLoading: !hasTemperature,
+              isActive: hasTemperature,
             ),
+
+            // ------------------------------------------------------
+            // Humidity
+            // ------------------------------------------------------
 
             SensorCard(
               title: 'Humidity',
-              value: s.humidity != null
-                  ? s.humidity!
-                      .toStringAsFixed(1)
-                  : '--',
+              value: hasHumidity
+                  ? humidity.toStringAsFixed(1)
+                  : '---',
               unit: '%',
-              icon:
-                  Icons.water_drop_outlined,
-              iconColor:
-                  Colors.blue,
-              status:
-                  _getHumidityStatus(
-                s.humidity,
-              ),
-              isLoading:
-                  s.humidity == null,
-              isActive:
-                  s.humidity != null,
+              icon: Icons.water_drop_outlined,
+              iconColor: Colors.blue,
+              status: hasHumidity
+                  ? _getHumidityStatus(humidity)
+                  : 'Waiting',
+              statusColor: hasHumidity
+                  ? _getHumidityStatus(humidity) == 'Normal'
+                      ? _kPrimary
+                      : _kAmber
+                  : Colors.grey,
+              isLoading: !hasHumidity,
+              isActive: hasHumidity,
             ),
+
+            // ------------------------------------------------------
+            // Light
+            // ------------------------------------------------------
 
             SensorCard(
               title: 'Light Intensity',
-              value: s.lightIntensity != null
-                  ? s.lightIntensity!
-                      .toStringAsFixed(0)
-                  : '--',
-
-              // Raw LDR ADC value.
+              value: hasLight ? light.toStringAsFixed(0) : '---',
               unit: 'ADC',
-
-              icon:
-                  Icons.wb_sunny_outlined,
-              iconColor:
-                  Colors.amber,
-              status:
-                  _getLightStatus(
-                s.lightIntensity,
-              ),
-              isLoading:
-                  s.lightIntensity == null,
-              isActive:
-                  s.lightIntensity != null,
+              icon: Icons.wb_sunny_outlined,
+              iconColor: Colors.amber.shade700,
+              status: hasLight
+                  ? _getLightStatus(light)
+                  : 'Waiting',
+              statusColor: hasLight
+                  ? _getLightStatus(light) == 'Moderate'
+                      ? _kPrimary
+                      : _kAmber
+                  : Colors.grey,
+              isLoading: !hasLight,
+              isActive: hasLight,
             ),
+
+            // ------------------------------------------------------
+            // Soil
+            // ------------------------------------------------------
 
             SensorCard(
               title: 'Soil Moisture',
-              value:
-                  s.soilStatus == '--'
-                      ? '--'
-                      : s.soilStatus,
+              value: hasSoil ? soilStatus : '---',
               unit: '',
-              icon:
-                  Icons.grass_outlined,
-              iconColor:
-                  _kPrimary,
-              status:
-                  _getSoilStatusText(
-                s.soilStatus,
-              ),
-              isLoading:
-                  s.soilStatus == '--',
-              isActive:
-                  s.soilStatus != '--',
+              icon: Icons.grass_outlined,
+              iconColor: _kPrimary,
+              status: hasSoil ? s.soilStatus : 'Waiting',
+              statusColor: hasSoil
+                  ? s.soilStatus.toUpperCase().contains('DRY')
+                      ? _kRed
+                      : s.soilStatus.toUpperCase().contains('WET')
+                          ? Colors.blue
+                          : _kPrimary
+                  : Colors.grey,
+              isLoading: !hasSoil,
+              isActive: hasSoil,
             ),
           ],
         ),
@@ -1540,111 +2304,79 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
-  // ================================================================
+  // ==============================================================
   // SMART IRRIGATION
-  // ================================================================
+  // ==============================================================
 
-  Widget _buildIrrigationCard(
-    _DashboardSnapshot s,
-  ) {
-    final bool? pump =
-        s.pumpManual;
+  Widget _buildIrrigationCard(_DashboardSnapshot s) {
+    final bool? pump = s.pumpManual;
 
     return Column(
-      crossAxisAlignment:
-          CrossAxisAlignment.start,
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         _sectionTitle(
           'Smart Irrigation',
+          icon: Icons.water_drop_outlined,
         ),
 
         const SizedBox(height: 12),
 
         Container(
-          padding:
-              const EdgeInsets.all(16),
-          decoration:
-              BoxDecoration(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
             color: _kSurface,
-            borderRadius:
-                BorderRadius.circular(16),
+            borderRadius: BorderRadius.circular(18),
             border: Border.all(
-              color:
-                  Colors.grey.shade200,
+              color: Colors.grey.shade200,
             ),
             boxShadow: [
               BoxShadow(
-                color: Colors.black
-                    .withValues(
-                  alpha: 0.04,
-                ),
+                color: Colors.black.withValues(alpha: 0.04),
                 blurRadius: 10,
-                offset:
-                    const Offset(0, 4),
+                offset: const Offset(0, 4),
               ),
             ],
           ),
           child: Column(
-            crossAxisAlignment:
-                CrossAxisAlignment.start,
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Row(
                 children: [
                   Container(
-                    padding:
-                        const EdgeInsets.all(
-                      10,
-                    ),
-                    decoration:
-                        BoxDecoration(
-                      color:
-                          _kSoftGreen,
-                      borderRadius:
-                          BorderRadius
-                              .circular(12),
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: _kSoftGreen,
+                      borderRadius: BorderRadius.circular(12),
                     ),
                     child: const Icon(
                       Icons.water_drop_outlined,
-                      color:
-                          _kPrimary,
+                      color: _kPrimary,
                       size: 22,
                     ),
                   ),
 
-                  const SizedBox(
-                    width: 12,
-                  ),
+                  const SizedBox(width: 12),
 
                   Expanded(
                     child: Column(
-                      crossAxisAlignment:
-                          CrossAxisAlignment
-                              .start,
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
                           'Water Pump',
-                          style:
-                              GoogleFonts.poppins(
+                          style: GoogleFonts.poppins(
                             fontSize: 13,
-                            color: Colors
-                                .grey
-                                .shade600,
+                            color: Colors.grey.shade600,
                           ),
                         ),
 
-                        const SizedBox(
-                          height: 2,
-                        ),
+                        const SizedBox(height: 2),
 
                         Text(
                           'Manual control',
-                          style:
-                              GoogleFonts.poppins(
+                          style: GoogleFonts.poppins(
                             fontSize: 15,
-                            fontWeight:
-                                FontWeight.w600,
-                            color:
-                                _kPrimary,
+                            fontWeight: FontWeight.w600,
+                            color: _kPrimary,
                           ),
                         ),
                       ],
@@ -1653,66 +2385,41 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
                   if (pump != null)
                     Container(
-                      padding:
-                          const EdgeInsets
-                              .symmetric(
+                      padding: const EdgeInsets.symmetric(
                         horizontal: 10,
                         vertical: 6,
                       ),
-                      decoration:
-                          BoxDecoration(
+                      decoration: BoxDecoration(
                         color: pump
                             ? _kSoftGreen
-                            : Colors
-                                .grey
-                                .shade100,
-                        borderRadius:
-                            BorderRadius
-                                .circular(
-                          20,
-                        ),
+                            : Colors.grey.shade100,
+                        borderRadius: BorderRadius.circular(20),
                       ),
                       child: Row(
-                        mainAxisSize:
-                            MainAxisSize.min,
+                        mainAxisSize: MainAxisSize.min,
                         children: [
-                          Container(
+                          AnimatedContainer(
+                            duration: const Duration(milliseconds: 300),
                             width: 8,
                             height: 8,
-                            decoration:
-                                BoxDecoration(
-                              shape:
-                                  BoxShape
-                                      .circle,
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
                               color: pump
                                   ? _kPrimary
-                                  : Colors
-                                      .grey
-                                      .shade500,
+                                  : Colors.grey.shade500,
                             ),
                           ),
 
-                          const SizedBox(
-                            width: 6,
-                          ),
+                          const SizedBox(width: 6),
 
                           Text(
-                            pump
-                                ? 'Pump ON'
-                                : 'Pump OFF',
-                            style:
-                                GoogleFonts
-                                    .poppins(
-                              fontSize:
-                                  11,
-                              fontWeight:
-                                  FontWeight
-                                      .w600,
+                            pump ? 'Pump ON' : 'Pump OFF',
+                            style: GoogleFonts.poppins(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w600,
                               color: pump
                                   ? _kPrimary
-                                  : Colors
-                                      .grey
-                                      .shade700,
+                                  : Colors.grey.shade700,
                             ),
                           ),
                         ],
@@ -1724,47 +2431,26 @@ class _DashboardScreenState extends State<DashboardScreen> {
               const SizedBox(height: 14),
 
               SizedBox(
-                width:
-                    double.infinity,
-                child:
-                    OutlinedButton.icon(
-                  onPressed:
-                      _showWateringDialog,
-                  icon:
-                      const Icon(
-                    Icons.tune,
-                  ),
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  onPressed: _showWateringDialog,
+                  icon: const Icon(Icons.tune),
                   label: Text(
                     'Manual Control',
-                    style:
-                        GoogleFonts.poppins(
-                      fontWeight:
-                          FontWeight.w600,
+                    style: GoogleFonts.poppins(
+                      fontWeight: FontWeight.w600,
                     ),
                   ),
-                  style:
-                      OutlinedButton.styleFrom(
-                    foregroundColor:
-                        _kPrimary,
-                    side:
-                        const BorderSide(
-                      color:
-                          _kPrimary,
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: _kPrimary,
+                    side: const BorderSide(
+                      color: _kPrimary,
                       width: 1.2,
                     ),
-                    shape:
-                        RoundedRectangleBorder(
-                      borderRadius:
-                          BorderRadius
-                              .circular(
-                        12,
-                      ),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
                     ),
-                    padding:
-                        const EdgeInsets
-                            .symmetric(
-                      vertical: 12,
-                    ),
+                    padding: const EdgeInsets.symmetric(vertical: 12),
                   ),
                 ),
               ),
@@ -1775,17 +2461,17 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
-  // ================================================================
+  // ==============================================================
   // QUICK ACTIONS
-  // ================================================================
+  // ==============================================================
 
   Widget _buildQuickActions() {
     return Column(
-      crossAxisAlignment:
-          CrossAxisAlignment.start,
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         _sectionTitle(
           'Quick Actions',
+          icon: Icons.bolt_outlined,
         ),
 
         const SizedBox(height: 12),
@@ -1796,55 +2482,38 @@ class _DashboardScreenState extends State<DashboardScreen> {
           mainAxisSpacing: 12,
           childAspectRatio: 1.7,
           shrinkWrap: true,
-          physics:
-              const NeverScrollableScrollPhysics(),
+          physics: const NeverScrollableScrollPhysics(),
           children: [
             QuickActionCard(
               title: 'Add Plant',
-              subtitle:
-                  'Register a new plant',
-              icon:
-                  Icons.add_circle_outline,
-              iconColor:
-                  _kPrimary,
-              onTap:
-                  _openAddPlant,
+              subtitle: 'Register a new plant',
+              icon: Icons.add_circle_outline,
+              iconColor: _kPrimary,
+              onTap: _openAddPlant,
             ),
 
             QuickActionCard(
               title: 'Water Now',
-              subtitle:
-                  'Control pump manually',
-              icon:
-                  Icons.water_drop_outlined,
-              iconColor:
-                  Colors.blue,
-              onTap:
-                  _showWateringDialog,
+              subtitle: 'Control pump manually',
+              icon: Icons.water_drop_outlined,
+              iconColor: Colors.blue,
+              onTap: _showWateringDialog,
             ),
 
             QuickActionCard(
               title: 'Device Setup',
-              subtitle:
-                  'Configure your device',
-              icon:
-                  Icons.settings_outlined,
-              iconColor:
-                  Colors.orange,
-              onTap:
-                  _openDeviceSetup,
+              subtitle: 'Configure your device',
+              icon: Icons.settings_outlined,
+              iconColor: Colors.orange,
+              onTap: _openDeviceSetup,
             ),
 
             QuickActionCard(
               title: 'Analytics',
-              subtitle:
-                  'View historical data',
-              icon:
-                  Icons.analytics_outlined,
-              iconColor:
-                  _kPrimary,
-              onTap:
-                  _openAnalytics,
+              subtitle: 'View historical data',
+              icon: Icons.analytics_outlined,
+              iconColor: _kPrimary,
+              onTap: _openAnalytics,
             ),
           ],
         ),
@@ -1852,105 +2521,102 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
-  // ================================================================
-  // RECENT ACTIVITY — UI BUILDER
-  // ================================================================
+  // ==============================================================
+  // RECENT ACTIVITY
+  // ==============================================================
 
-  Widget _buildRecentActivity(
-    _DashboardSnapshot s,
-  ) {
+  Widget _buildRecentActivity(_DashboardSnapshot s) {
     return Column(
-      crossAxisAlignment:
-          CrossAxisAlignment.start,
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Row(
-          children: [
-            Expanded(
-              child: _sectionTitle(
-                'Recent Activity',
+        _sectionTitle(
+          'Recent Activity',
+          icon: Icons.history,
+          trailing: TextButton(
+            onPressed: _openAnalytics,
+            style: TextButton.styleFrom(
+              foregroundColor: _kPrimary,
+              padding: const EdgeInsets.symmetric(horizontal: 8),
+            ),
+            child: Text(
+              'View All',
+              style: GoogleFonts.poppins(
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
               ),
             ),
-
-            TextButton(
-              onPressed:
-                  _openAnalytics,
-              child:
-                  const Text(
-                'View Analytics',
-              ),
-            ),
-          ],
+          ),
         ),
 
-        const SizedBox(height: 4),
+        const SizedBox(height: 8),
 
         if (s.recentActivity.isEmpty)
-          _unavailableCard(
-            'No log entries available yet.',
-          )
+          _unavailableCard('No log entries available yet.')
         else
           ...s.recentActivity.map(
-            (entry) =>
-                RecentActivityCard(
-              title:
-                  entry.title,
-              subtitle:
-                  entry.subtitle,
-              time:
-                  _relativeTime(
-                entry.timestamp,
-              ),
-              icon:
-                  entry.icon,
-              iconColor:
-                  entry.color,
+            (entry) => RecentActivityCard(
+              title: entry.title,
+              subtitle: entry.subtitle,
+              time: _relativeTime(entry.timestamp),
+              icon: entry.icon,
+              iconColor: entry.color,
             ),
           ),
       ],
     );
   }
 
-  // ================================================================
+  // ==============================================================
   // SHARED WIDGETS
-  // ================================================================
+  // ==============================================================
 
   Widget _sectionTitle(
-    String text,
-  ) {
-    return Text(
-      text,
-      style:
-          GoogleFonts.poppins(
-        fontSize: 17,
-        fontWeight:
-            FontWeight.w700,
-        color:
-            Colors.black87,
-      ),
+    String text, {
+    IconData? icon,
+    Widget? trailing,
+  }) {
+    return Row(
+      children: [
+        if (icon != null) ...[
+          Container(
+            padding: const EdgeInsets.all(6),
+            decoration: BoxDecoration(
+              color: _kSoftGreen,
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Icon(icon, size: 14, color: _kPrimary),
+          ),
+          const SizedBox(width: 8),
+        ],
+
+        Expanded(
+          child: Text(
+            text,
+            style: GoogleFonts.poppins(
+              fontSize: 17,
+              fontWeight: FontWeight.w700,
+              color: Colors.black87,
+            ),
+          ),
+        ),
+
+        if (trailing != null) trailing,
+      ],
     );
   }
 
-  Widget _unavailableCard(
-    String message,
-  ) {
+  Widget _unavailableCard(String message) {
     return Container(
       width: double.infinity,
-      padding:
-          const EdgeInsets.all(18),
-      decoration:
-          BoxDecoration(
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
         color: _kSurface,
-        borderRadius:
-            BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(18),
         boxShadow: [
           BoxShadow(
-            color: Colors.black
-                .withValues(
-              alpha: 0.03,
-            ),
+            color: Colors.black.withValues(alpha: 0.03),
             blurRadius: 10,
-            offset:
-                const Offset(0, 4),
+            offset: const Offset(0, 4),
           ),
         ],
       ),
@@ -1966,11 +2632,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
           Expanded(
             child: Text(
               message,
-              style:
-                  GoogleFonts.poppins(
+              style: GoogleFonts.poppins(
                 fontSize: 13,
-                color:
-                    Colors.grey.shade700,
+                color: Colors.grey.shade700,
               ),
             ),
           ),
@@ -1979,76 +2643,81 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
-  // ================================================================
+  // ==============================================================
   // LOADING / ERROR
-  // ================================================================
+  // ==============================================================
 
   Widget _buildLoadingScreen() {
     return const Center(
-      child:
-          CircularProgressIndicator(),
+      child: CircularProgressIndicator(color: _kPrimary),
     );
   }
 
-  Widget _buildErrorScreen(
-    String error,
-  ) {
+  Widget _buildErrorScreen(String error) {
     return Center(
       child: Padding(
-        padding:
-            const EdgeInsets.all(24),
+        padding: const EdgeInsets.all(24),
         child: Column(
-          mainAxisAlignment:
-              MainAxisAlignment.center,
+          mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            const Icon(
-              Icons.error_outline,
-              size: 50,
-              color: Colors.red,
+            Container(
+              padding: const EdgeInsets.all(18),
+              decoration: BoxDecoration(
+                color: _kRed.withValues(alpha: 0.08),
+                shape: BoxShape.circle,
+              ),
+              child: const Icon(
+                Icons.error_outline,
+                size: 42,
+                color: _kRed,
+              ),
             ),
 
-            const SizedBox(
-              height: 15,
-            ),
+            const SizedBox(height: 18),
 
             Text(
               'Unable to load dashboard',
-              textAlign:
-                  TextAlign.center,
-              style:
-                  GoogleFonts.poppins(
+              textAlign: TextAlign.center,
+              style: GoogleFonts.poppins(
                 fontSize: 18,
-                fontWeight:
-                    FontWeight.w600,
+                fontWeight: FontWeight.w600,
+                color: _kPrimary,
               ),
             ),
 
-            const SizedBox(
-              height: 8,
-            ),
+            const SizedBox(height: 8),
 
             Text(
               error,
-              textAlign:
-                  TextAlign.center,
-              style:
-                  GoogleFonts.poppins(
+              textAlign: TextAlign.center,
+              style: GoogleFonts.poppins(
                 fontSize: 12,
-                color:
-                    Colors.grey.shade600,
+                color: Colors.grey.shade600,
               ),
             ),
 
-            const SizedBox(
-              height: 20,
-            ),
+            const SizedBox(height: 20),
 
-            ElevatedButton(
+            ElevatedButton.icon(
               onPressed: () {
-                setState(() {});
+                setState(() {
+                  _aiForecastFuture = AiForecastService.getForecast();
+                });
               },
-              child:
-                  const Text('Retry'),
+              icon: const Icon(Icons.refresh),
+              label: const Text('Retry'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: _kPrimary,
+                foregroundColor: Colors.white,
+                elevation: 0,
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 22,
+                  vertical: 12,
+                ),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+              ),
             ),
           ],
         ),
@@ -2056,9 +2725,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
-  // ================================================================
-  // BOTTOM NAVIGATION
-  // ================================================================
+  // ==============================================================
+  // BODY NAVIGATION
+  // ==============================================================
 
   Widget _buildBody() {
     switch (_currentIndex) {
@@ -2079,79 +2748,69 @@ class _DashboardScreenState extends State<DashboardScreen> {
     }
   }
 
+  // ==============================================================
+  // MAIN BUILD
+  // ==============================================================
+
   @override
-  Widget build(
-    BuildContext context,
-  ) {
+  Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor:
-          _kBackground,
+      backgroundColor: _kBackground,
 
       body: SafeArea(
-        child:
-            _buildBody(),
+        child: _buildBody(),
       ),
 
-      bottomNavigationBar:
-          NavigationBar(
-        selectedIndex:
-            _currentIndex,
-
-        onDestinationSelected:
-            (index) {
-          setState(() {
-            _currentIndex = index;
-          });
-        },
-
-        backgroundColor:
-            Colors.white,
-
-        indicatorColor:
-            const Color(
-          0xFFDCEDE5,
+      bottomNavigationBar: Container(
+        decoration: BoxDecoration(
+          color: Colors.white,
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.05),
+              blurRadius: 12,
+              offset: const Offset(0, -4),
+            ),
+          ],
         ),
+        child: NavigationBar(
+          selectedIndex: _currentIndex,
+          onDestinationSelected: (index) {
+            HapticFeedback.selectionClick();
+            setState(() {
+              _currentIndex = index;
+            });
+          },
+          backgroundColor: Colors.white,
+          elevation: 0,
+          height: 68,
+          indicatorColor: const Color(0xFFDCEDE5),
+          labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
+          destinations: const [
+            NavigationDestination(
+              icon: Icon(Icons.home_outlined),
+              selectedIcon: Icon(Icons.home, color: _kPrimary),
+              label: 'Home',
+            ),
 
-        destinations: const [
-          NavigationDestination(
-            icon: Icon(
-              Icons.home_outlined,
+            NavigationDestination(
+              icon: Icon(Icons.local_florist_outlined),
+              selectedIcon: Icon(Icons.local_florist, color: _kPrimary),
+              label: 'Plants',
             ),
-            selectedIcon:
-                Icon(Icons.home),
-            label: 'Home',
-          ),
 
-          NavigationDestination(
-            icon: Icon(
-              Icons.local_florist_outlined,
+            NavigationDestination(
+              icon: Icon(Icons.notifications_none),
+              selectedIcon: Icon(Icons.notifications, color: _kPrimary),
+              label: 'Alerts',
             ),
-            selectedIcon: Icon(
-              Icons.local_florist,
-            ),
-            label: 'Plants',
-          ),
 
-          NavigationDestination(
-            icon: Icon(
-              Icons.notifications_none,
+            NavigationDestination(
+              icon: Icon(Icons.person_outline),
+              selectedIcon: Icon(Icons.person, color: _kPrimary),
+              label: 'Profile',
             ),
-            selectedIcon: Icon(
-              Icons.notifications,
-            ),
-            label: 'Notifications',
-          ),
-
-          NavigationDestination(
-            icon: Icon(
-              Icons.person_outline,
-            ),
-            selectedIcon: Icon(
-              Icons.person,
-            ),
-            label: 'Profile',
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }

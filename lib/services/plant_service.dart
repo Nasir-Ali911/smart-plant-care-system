@@ -5,6 +5,8 @@ import 'package:firebase_database/firebase_database.dart';
 import 'package:http/http.dart' as http;
 import 'package:image_picker/image_picker.dart';
 
+import '../models/sensor_model.dart';
+
 class PlantService {
   final DatabaseReference _dbRef =
       FirebaseDatabase.instance.ref();
@@ -36,14 +38,61 @@ class PlantService {
   }
 
   // ============================================================
+  // CURRENT SENSOR DATA
+  // ============================================================
+
+  Future<SensorModel?> fetchCurrentSensorData() async {
+    final DatabaseReference sensorRef =
+        _dbRef.child('SmartPlant');
+
+    final DatabaseEvent event =
+        await sensorRef.once();
+
+    final Object? value =
+        event.snapshot.value;
+
+    if (value == null || value is! Map) {
+      return null;
+    }
+
+    final Map<String, dynamic> data =
+        Map<String, dynamic>.from(value);
+
+    return SensorModel.fromMap(data);
+  }
+
+  // ============================================================
+  // CURRENT SENSOR DATA STREAM
+  // ============================================================
+
+  Stream<SensorModel?> sensorStream() {
+    return _dbRef
+        .child('SmartPlant')
+        .onValue
+        .map((event) {
+      final Object? value =
+          event.snapshot.value;
+
+      if (value == null || value is! Map) {
+        return null;
+      }
+
+      final Map<String, dynamic> data =
+          Map<String, dynamic>.from(value);
+
+      return SensorModel.fromMap(data);
+    });
+  }
+
+  // ============================================================
   // MANUAL PUMP CONTROL
   // ============================================================
 
-  Future<void> triggerManualWatering(bool turnOn) async {
+  Future<void> triggerManualWatering(
+    bool turnOn,
+  ) async {
     final DatabaseReference controlRef =
-        FirebaseDatabase.instance.ref(
-      'SmartPlant/Control',
-    );
+        _dbRef.child('SmartPlant/Control');
 
     await controlRef.set({
       'PumpManual': turnOn ? 'ON' : 'OFF',
@@ -66,7 +115,8 @@ class PlantService {
         .limitToLast(limit)
         .once();
 
-    final Object? value = event.snapshot.value;
+    final Object? value =
+        event.snapshot.value;
 
     if (value == null) {
       return [];
@@ -82,7 +132,8 @@ class PlantService {
     final List<Map<String, dynamic>> logs = [];
 
     for (final entry in rawLogs.entries) {
-      final dynamic rawValue = entry.value;
+      final dynamic rawValue =
+          entry.value;
 
       if (rawValue is! Map) {
         continue;
@@ -108,7 +159,9 @@ class PlantService {
       final int timestampB =
           _toInt(b['Timestamp']);
 
-      return timestampA.compareTo(timestampB);
+      return timestampA.compareTo(
+        timestampB,
+      );
     });
 
     return logs;
@@ -117,18 +170,6 @@ class PlantService {
   // ============================================================
   // SENSOR VALUE HELPERS
   // ============================================================
-
-  double _toDouble(dynamic value) {
-    if (value is num) {
-      return value.toDouble();
-    }
-
-    return double.tryParse(
-          value?.toString() ?? '',
-        ) ??
-        0.0;
-  }
-
   int _toInt(dynamic value) {
     if (value is num) {
       return value.toInt();
@@ -153,7 +194,8 @@ class PlantService {
         '$_cloudName/image/upload',
       );
 
-      final request = http.MultipartRequest(
+      final http.MultipartRequest request =
+          http.MultipartRequest(
         'POST',
         uploadUrl,
       );
@@ -161,7 +203,7 @@ class PlantService {
       request.fields['upload_preset'] =
           _uploadPreset;
 
-      final imageBytes =
+      final List<int> imageBytes =
           await imageFile.readAsBytes();
 
       request.files.add(
@@ -172,10 +214,10 @@ class PlantService {
         ),
       );
 
-      final streamedResponse =
+      final http.StreamedResponse streamedResponse =
           await request.send();
 
-      final response =
+      final http.Response response =
           await http.Response.fromStream(
         streamedResponse,
       );

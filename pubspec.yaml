@@ -27,7 +27,7 @@ dependencies:
 
   # Image selection
   image_picker: ^1.1.2
-  http: ^1.5.0
+  http: ^1.6.0
   firebase_messaging: ^15.2.10
 
 dev_dependencies:

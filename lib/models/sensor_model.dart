@@ -3,7 +3,8 @@ class SensorModel {
   final double humidity;
   final double soilMoisture;
   final double lightIntensity;
-  final double waterLevel;
+  final String soilStatus;
+  final String lightStatus;
   final DateTime timestamp;
 
   SensorModel({
@@ -11,33 +12,103 @@ class SensorModel {
     required this.humidity,
     required this.soilMoisture,
     required this.lightIntensity,
-    required this.waterLevel,
+    required this.soilStatus,
+    required this.lightStatus,
     required this.timestamp,
   });
 
-  // Convert Firestore Document to SensorModel
+  // ============================================================
+  // CONVERT REALTIME DATABASE /SmartPlant DATA TO SensorModel
+  // ============================================================
+
   factory SensorModel.fromMap(Map<String, dynamic> map) {
     return SensorModel(
-      temperature: (map['temperature'] ?? 0.0).toDouble(),
-      humidity: (map['humidity'] ?? 0.0).toDouble(),
-      soilMoisture: (map['soilMoisture'] ?? 0.0).toDouble(),
-      lightIntensity: (map['lightIntensity'] ?? 0.0).toDouble(),
-      waterLevel: (map['waterLevel'] ?? 0.0).toDouble(),
-      timestamp: map['timestamp'] != null
-          ? (map['timestamp']).toDate()
-          : DateTime.now(),
+      temperature: _toDouble(map['Temperature']),
+      humidity: _toDouble(map['Humidity']),
+      soilMoisture: _toDouble(map['SoilMoistureRaw']),
+      lightIntensity: _toDouble(map['LightIntensity']),
+      soilStatus: map['SoilStatus']?.toString() ?? 'UNKNOWN',
+      lightStatus: map['LightStatus']?.toString() ?? 'UNKNOWN',
+      timestamp: _parseTimestamp(map['Timestamp']),
     );
   }
 
-  // Convert SensorModel to Map for Firestore storage
+  // ============================================================
+  // CONVERT SensorModel TO MAP
+  // ============================================================
+
   Map<String, dynamic> toMap() {
     return {
-      'temperature': temperature,
-      'humidity': humidity,
-      'soilMoisture': soilMoisture,
-      'lightIntensity': lightIntensity,
-      'waterLevel': waterLevel,
-      'timestamp': timestamp,
+      'Temperature': temperature,
+      'Humidity': humidity,
+      'SoilMoistureRaw': soilMoisture,
+      'LightIntensity': lightIntensity,
+      'SoilStatus': soilStatus,
+      'LightStatus': lightStatus,
+      'Timestamp': timestamp.millisecondsSinceEpoch,
     };
+  }
+
+  // ============================================================
+  // SAFE DOUBLE CONVERSION
+  // ============================================================
+
+  static double _toDouble(dynamic value) {
+    if (value is num) {
+      return value.toDouble();
+    }
+
+    return double.tryParse(
+          value?.toString() ?? '',
+        ) ??
+        0.0;
+  }
+
+  // ============================================================
+  // SAFE TIMESTAMP CONVERSION
+  // ============================================================
+
+  static DateTime _parseTimestamp(dynamic value) {
+    if (value is num) {
+      final int timestamp = value.toInt();
+
+      // Firebase timestamps are normally milliseconds.
+      // However, support Unix seconds as well.
+      if (timestamp < 10000000000) {
+        return DateTime.fromMillisecondsSinceEpoch(
+          timestamp * 1000,
+        );
+      }
+
+      return DateTime.fromMillisecondsSinceEpoch(
+        timestamp,
+      );
+    }
+
+    if (value is String) {
+      final DateTime? parsed =
+          DateTime.tryParse(value);
+
+      if (parsed != null) {
+        return parsed;
+      }
+
+      final int? numeric =
+          int.tryParse(value);
+
+      if (numeric != null) {
+        if (numeric < 10000000000) {
+          return DateTime.fromMillisecondsSinceEpoch(
+            numeric * 1000,
+          );
+        }
+
+        return DateTime.fromMillisecondsSinceEpoch(
+          numeric,
+        );
+      }
+    }
+
+    return DateTime.now();
   }
 }

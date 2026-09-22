@@ -6,8 +6,10 @@ import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 
 import 'package:smart_plant_care/firebase_options.dart';
 import 'package:smart_plant_care/services/firestore_service.dart';
+import 'package:smart_plant_care/services/notification_history_service.dart';
 
-/// Handles Firebase Cloud Messaging for Smart Plant Care.
+/// Handles Firebase Cloud Messaging and local notifications
+/// for Smart Plant Care.
 ///
 /// Responsibilities:
 /// - Request notification permission
@@ -15,10 +17,12 @@ import 'package:smart_plant_care/services/firestore_service.dart';
 /// - Save FCM token to the logged-in user's Firestore profile
 /// - Save token automatically after login
 /// - Listen for token changes
-/// - Handle foreground messages
+/// - Handle foreground FCM messages
 /// - Display foreground notifications
 /// - Register background message handler
 /// - Handle notification taps
+/// - Generate AI recommendation notifications
+/// - Save AI notifications to Firebase notification history
 class NotificationService {
   NotificationService._();
 
@@ -34,6 +38,9 @@ class NotificationService {
 
   static final FirestoreService _firestoreService =
       FirestoreService();
+
+  static final NotificationHistoryService _historyService =
+      NotificationHistoryService.instance;
 
   // ============================================================
   // Local notifications
@@ -63,6 +70,14 @@ class NotificationService {
   static String? _currentToken;
 
   // ============================================================
+  // AI notification duplicate protection
+  // ============================================================
+
+  static String? _lastAIAlertKey;
+
+  static DateTime? _lastAIAlertTime;
+
+  // ============================================================
   // Background FCM handler
   // ============================================================
 
@@ -81,6 +96,12 @@ class NotificationService {
     debugPrint(
       'FCM BACKGROUND DATA: ${message.data}',
     );
+
+    // Background FCM messages are handled by Firebase/Android.
+    //
+    // We intentionally do not create another local notification
+    // here because notification messages are already displayed
+    // by Android when the application is in the background.
   }
 
   // ============================================================
@@ -141,7 +162,7 @@ class NotificationService {
   }
 
   // ============================================================
-  // Show foreground notification
+  // Show foreground FCM notification
   // ============================================================
 
   static Future<void> _showForegroundNotification(
@@ -192,6 +213,126 @@ class NotificationService {
   }
 
   // ============================================================
+  // AI RECOMMENDATION NOTIFICATION
+  // ============================================================
+
+  /// Displays an AI-generated recommendation as a local
+  /// Android notification and saves it to Firebase history.
+  ///
+  /// Duplicate protection prevents the exact same AI alert
+  /// from being generated repeatedly within 30 minutes.
+  static Future<void> notifyAIRecommendation({
+    required String title,
+    required String message,
+    required String urgency,
+    required double score,
+    String category = 'Soil',
+    String type = 'AI Recommendation',
+  }) async {
+    try {
+      // ----------------------------------------------------------
+      // Duplicate protection
+      // ----------------------------------------------------------
+
+      final String alertKey =
+          '${title.trim()}|'
+          '${message.trim()}|'
+          '${urgency.trim()}';
+
+      final DateTime now = DateTime.now();
+
+      if (_lastAIAlertKey == alertKey &&
+          _lastAIAlertTime != null &&
+          now.difference(_lastAIAlertTime!).inMinutes < 30) {
+        debugPrint(
+          'AI NOTIFICATION: Duplicate alert suppressed.',
+        );
+        return;
+      }
+
+      _lastAIAlertKey = alertKey;
+      _lastAIAlertTime = now;
+
+      // ----------------------------------------------------------
+      // Save notification to Firebase history
+      // ----------------------------------------------------------
+
+      final String? historyId =
+          await _historyService.addNotification(
+        title: title,
+        message: message,
+        category: category,
+        priority: urgency,
+        type: type,
+        timestamp: now,
+        isRead: false,
+      );
+
+      debugPrint(
+        'AI NOTIFICATION: Saved to history: $historyId',
+      );
+
+      // ----------------------------------------------------------
+      // Make sure local notifications are initialized
+      // ----------------------------------------------------------
+
+      if (!_initialized) {
+        await _initializeLocalNotifications();
+      }
+
+      // ----------------------------------------------------------
+      // Android notification
+      // ----------------------------------------------------------
+
+      final AndroidNotificationDetails
+          androidNotificationDetails =
+          AndroidNotificationDetails(
+        _notificationChannel.id,
+        _notificationChannel.name,
+        channelDescription:
+            _notificationChannel.description,
+        importance: Importance.max,
+        priority: Priority.high,
+        playSound: true,
+        icon: '@mipmap/ic_launcher',
+      );
+
+      final NotificationDetails notificationDetails =
+          NotificationDetails(
+        android: androidNotificationDetails,
+      );
+
+      final int notificationId =
+          DateTime.now().millisecondsSinceEpoch ~/ 1000;
+
+      await _localNotifications.show(
+        id: notificationId,
+        title: title,
+        body: message,
+        notificationDetails: notificationDetails,
+        payload: 'ai_recommendation',
+      );
+
+      debugPrint(
+        'AI NOTIFICATION: Android notification displayed.',
+      );
+
+      debugPrint(
+        'AI NOTIFICATION SCORE: '
+        '${score.toStringAsFixed(1)}',
+      );
+
+      debugPrint(
+        'AI NOTIFICATION URGENCY: $urgency',
+      );
+    } catch (e) {
+      debugPrint(
+        'AI NOTIFICATION ERROR: $e',
+      );
+    }
+  }
+
+  // ============================================================
   // Save FCM token to Firestore
   // ============================================================
 
@@ -206,6 +347,7 @@ class NotificationService {
           'FCM TOKEN: No authenticated user. '
           'Token will be saved after login.',
         );
+
         return;
       }
 
@@ -243,6 +385,7 @@ class NotificationService {
       debugPrint(
         'FCM AUTH: No authenticated user.',
       );
+
       return;
     }
 
@@ -252,6 +395,7 @@ class NotificationService {
       debugPrint(
         'FCM AUTH: Token not available yet.',
       );
+
       return;
     }
 
@@ -272,6 +416,7 @@ class NotificationService {
       debugPrint(
         'FCM initialization skipped on web.',
       );
+
       return;
     }
 
@@ -279,28 +424,30 @@ class NotificationService {
       debugPrint(
         'FCM initialization already completed.',
       );
+
       return;
     }
 
+    // Set this only after confirming we are on Android/iOS.
     _initialized = true;
 
-    // ------------------------------------------------------------
+    // ----------------------------------------------------------
     // Background message handler
-    // ------------------------------------------------------------
+    // ----------------------------------------------------------
 
     FirebaseMessaging.onBackgroundMessage(
       firebaseMessagingBackgroundHandler,
     );
 
-    // ------------------------------------------------------------
+    // ----------------------------------------------------------
     // Local notifications
-    // ------------------------------------------------------------
+    // ----------------------------------------------------------
 
     await _initializeLocalNotifications();
 
-    // ------------------------------------------------------------
+    // ----------------------------------------------------------
     // FCM notification permission
-    // ------------------------------------------------------------
+    // ----------------------------------------------------------
 
     final NotificationSettings settings =
         await _messaging.requestPermission(
@@ -318,9 +465,9 @@ class NotificationService {
       '${settings.authorizationStatus}',
     );
 
-    // ------------------------------------------------------------
+    // ----------------------------------------------------------
     // Get FCM token
-    // ------------------------------------------------------------
+    // ----------------------------------------------------------
 
     try {
       final String? token =
@@ -356,9 +503,9 @@ class NotificationService {
       );
     }
 
-    // ------------------------------------------------------------
+    // ----------------------------------------------------------
     // Authentication listener
-    // ------------------------------------------------------------
+    // ----------------------------------------------------------
 
     _auth.authStateChanges().listen(
       (User? user) async {
@@ -382,9 +529,9 @@ class NotificationService {
       },
     );
 
-    // ------------------------------------------------------------
+    // ----------------------------------------------------------
     // FCM token refresh
-    // ------------------------------------------------------------
+    // ----------------------------------------------------------
 
     _messaging.onTokenRefresh.listen(
       (String newToken) async {
@@ -405,9 +552,9 @@ class NotificationService {
       },
     );
 
-    // ------------------------------------------------------------
+    // ----------------------------------------------------------
     // Foreground messages
-    // ------------------------------------------------------------
+    // ----------------------------------------------------------
 
     FirebaseMessaging.onMessage.listen(
       (RemoteMessage message) async {
@@ -444,9 +591,9 @@ class NotificationService {
       },
     );
 
-    // ------------------------------------------------------------
+    // ----------------------------------------------------------
     // Notification tap - background
-    // ------------------------------------------------------------
+    // ----------------------------------------------------------
 
     FirebaseMessaging.onMessageOpenedApp.listen(
       (RemoteMessage message) {
@@ -464,9 +611,9 @@ class NotificationService {
       },
     );
 
-    // ------------------------------------------------------------
+    // ----------------------------------------------------------
     // Notification tap - terminated app
-    // ------------------------------------------------------------
+    // ----------------------------------------------------------
 
     final RemoteMessage? initialMessage =
         await _messaging.getInitialMessage();
