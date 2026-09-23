@@ -14,16 +14,35 @@ from firebase_admin import credentials, db
 # PATHS / FIREBASE CONFIGURATION
 # ============================================================
 
+BASE_DIR = Path(__file__).resolve().parent
+
 MODEL_PATH = (
-    Path(__file__).parent
+    BASE_DIR
     / "model"
     / "smart_plant_soil_forecasting_model.joblib"
 )
 
-SERVICE_ACCOUNT_PATH = (
-    Path(__file__).parent
+# Render Secret File:
+#   /etc/secrets/firebase-service-account.json
+#
+# Local development:
+#   smart_plant_ml/firebase-service-account.json
+#
+# The local credential file must NOT be committed to GitHub.
+RENDER_SERVICE_ACCOUNT_PATH = Path(
+    "/etc/secrets/firebase-service-account.json"
+)
+
+LOCAL_SERVICE_ACCOUNT_PATH = (
+    BASE_DIR
     / "firebase-service-account.json"
 )
+
+if RENDER_SERVICE_ACCOUNT_PATH.exists():
+    SERVICE_ACCOUNT_PATH = RENDER_SERVICE_ACCOUNT_PATH
+else:
+    SERVICE_ACCOUNT_PATH = LOCAL_SERVICE_ACCOUNT_PATH
+
 
 DATABASE_URL = (
     "https://smart-plant-care-fyp-2026-default-rtdb.firebaseio.com"
@@ -35,7 +54,7 @@ DATABASE_URL = (
 # ============================================================
 
 API_OUTPUT_PATH = (
-    Path(__file__).parent
+    BASE_DIR
     / "ml_output.json"
 )
 
@@ -266,6 +285,11 @@ def load_live_logs():
             "Firebase service-account file not found:\n"
             f"{SERVICE_ACCOUNT_PATH}"
         )
+
+    print(
+        f"Using Firebase credentials from: "
+        f"{SERVICE_ACCOUNT_PATH}"
+    )
 
     # Initialize Firebase only once.
     if not firebase_admin._apps:
