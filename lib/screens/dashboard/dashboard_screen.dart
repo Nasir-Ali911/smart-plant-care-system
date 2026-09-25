@@ -2103,7 +2103,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
           const SizedBox(height: 8),
 
           Text(
-            'API: http://192.168.1.152:5000/api/soil-forecast',
+            'API: https://nasir.pythonanywhere.com/api/soil-forecast',
             style: GoogleFonts.poppins(
               fontSize: 9.5,
               color: Colors.grey.shade500,

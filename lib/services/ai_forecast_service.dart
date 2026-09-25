@@ -5,7 +5,7 @@ import '../models/ai_forecast_model.dart';
 
 class AiForecastService {
   // Flask server running on your PC
-  static const String baseUrl = 'http://192.168.1.152:5000';
+  static const String baseUrl = 'https://nasir.pythonanywhere.com';
 
   static Future<AiForecastModel> getForecast() async {
     final url = Uri.parse('$baseUrl/api/soil-forecast');
