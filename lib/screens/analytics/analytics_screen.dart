@@ -147,36 +147,41 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
   // ============================================================
   // LOAD HISTORICAL DATA — single fetch, limitToLast(500)
   // ============================================================
+Future<void> _loadLogs() async {
+  if (_isLoading) return;
 
-  Future<void> _loadLogs() async {
-    if (_isLoading) return;
+  setState(() {
+    _isLoading = true;
+    _errorMessage = null;
+  });
+
+  try {
+    // Fetch the complete 30-day window from Firebase.
+    //
+    // The selected 24-hour / 7-day / 30-day range is then
+    // filtered locally by _filteredLogs() and _countInRange().
+    final List<Map<String, dynamic>> logs =
+        await _plantService.fetchRecentLogs(
+      cutoff: const Duration(days: 30),
+    );
+
+    if (!mounted) return;
 
     setState(() {
-      _isLoading = true;
-      _errorMessage = null;
+      _rawLogs = logs;
+      _isLoading = false;
     });
+  } catch (_) {
+    if (!mounted) return;
 
-    try {
-      final List<Map<String, dynamic>> logs =
-          await _plantService.fetchRecentLogs(limit: 500);
-
-      if (!mounted) return;
-
-      setState(() {
-        _rawLogs = logs;
-        _isLoading = false;
-      });
-    } catch (_) {
-      if (!mounted) return;
-
-      setState(() {
-        _isLoading = false;
-        _errorMessage =
-            'We could not load your historical data. Please check your '
-            'connection and try again.';
-      });
-    }
+    setState(() {
+      _isLoading = false;
+      _errorMessage =
+          'We could not load your historical data. Please check your '
+          'connection and try again.';
+    });
   }
+}
 
   // ============================================================
   // VALUE HELPERS
@@ -184,9 +189,47 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
 
   double? _toNullableDouble(dynamic value) {
     if (value == null) return null;
-    if (value is num) return value.toDouble();
 
-    return double.tryParse(value.toString());
+    final double? parsed = value is num
+        ? value.toDouble()
+        : double.tryParse(value.toString().trim());
+
+    if (parsed == null || !parsed.isFinite) return null;
+    return parsed;
+  }
+
+  /// Returns a valid numeric sensor value according to the sensor-specific
+  /// rules used throughout Analytics.
+  ///
+  /// Temperature:
+  ///   0 and negative values are ignored.
+  ///
+  /// Humidity:
+  ///   0 and negative values are ignored.
+  ///
+  /// LightIntensity:
+  ///   0 is valid, while negative values are ignored.
+  ///
+  /// This keeps averages, valid-reading counts, charts, and the latest
+  /// reading consistent with one another.
+  double? _getValidSensorValue(
+    Map<String, dynamic> log,
+    String field,
+  ) {
+    final double? value = _toNullableDouble(_getValue(log, field));
+    if (value == null) return null;
+
+    switch (field) {
+      case 'Temperature':
+      case 'Humidity':
+        return value > 0 ? value : null;
+
+      case 'LightIntensity':
+        return value >= 0 ? value : null;
+
+      default:
+        return value;
+    }
   }
 
   dynamic _getValue(Map<String, dynamic> log, String key) {
@@ -254,22 +297,31 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
   // SOIL STATUS NORMALIZATION
   // ============================================================
 
-  String _normalizeSoilStatus(dynamic raw) {
-    final String value = raw?.toString().trim().toUpperCase() ?? '';
+ String _normalizeSoilStatus(dynamic raw) {
+  final String value = raw?.toString().trim().toUpperCase() ?? '';
 
-    switch (value) {
-      case 'DRY':
-        return 'DRY';
-      case 'MOIST':
-        return 'MOIST';
-      case 'NORMAL':
-        return 'NORMAL';
-      case 'WET':
-        return 'WET';
-      default:
-        return 'UNKNOWN';
-    }
+  if (value.isEmpty) {
+    return 'UNKNOWN';
   }
+
+  if (value.startsWith('DRY')) {
+    return 'DRY';
+  }
+
+  if (value.startsWith('MOIST')) {
+    return 'MOIST';
+  }
+
+  if (value.startsWith('NORMAL')) {
+    return 'NORMAL';
+  }
+
+  if (value.startsWith('WET')) {
+    return 'WET';
+  }
+
+  return 'UNKNOWN';
+}
 
   // ============================================================
   // RANGE FILTERING + CHRONOLOGICAL SORT
@@ -325,7 +377,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
     int n = 0;
 
     for (final log in logs) {
-      final v = _toNullableDouble(_getValue(log, field));
+      final v = _getValidSensorValue(log, field);
       if (v != null) {
         sum += v;
         n++;
@@ -339,7 +391,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
   int _countValid(List<Map<String, dynamic>> logs, String field) {
     int n = 0;
     for (final log in logs) {
-      if (_toNullableDouble(_getValue(log, field)) != null) n++;
+      if (_getValidSensorValue(log, field) != null) n++;
     }
     return n;
   }
@@ -388,7 +440,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
 
     for (final log in logs) {
       final dt = _getTimestamp(log);
-      final value = _toNullableDouble(_getValue(log, field));
+      final value = _getValidSensorValue(log, field);
       if (dt == null || value == null) continue;
 
       spots.add(
@@ -956,11 +1008,11 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
     final latest = logs.last;
 
     final double? temperature =
-        _toNullableDouble(_getValue(latest, 'Temperature'));
+        _getValidSensorValue(latest, 'Temperature');
     final double? humidity =
-        _toNullableDouble(_getValue(latest, 'Humidity'));
+        _getValidSensorValue(latest, 'Humidity');
     final double? light =
-        _toNullableDouble(_getValue(latest, 'LightIntensity'));
+        _getValidSensorValue(latest, 'LightIntensity');
 
     final String soil =
         _normalizeSoilStatus(_getValue(latest, 'SoilStatus'));

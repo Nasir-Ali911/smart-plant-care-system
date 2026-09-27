@@ -104,16 +104,35 @@ class PlantService {
   // HISTORICAL SENSOR LOGS
   // ============================================================
 
+  /// Fetch historical SmartPlant logs.
+  ///
+  /// If [cutoff] is supplied, only logs from [cutoff] onward
+  /// are requested from Firebase.
+  ///
+  /// [limit] remains available as a safety limit when no cutoff
+  /// is supplied.
   Future<List<Map<String, dynamic>>> fetchRecentLogs({
     int limit = 50,
+    Duration? cutoff,
   }) async {
     final DatabaseReference logsRef =
         _dbRef.child('SmartPlant/Logs');
 
-    final DatabaseEvent event = await logsRef
-        .orderByChild('Timestamp')
-        .limitToLast(limit)
-        .once();
+    Query query = logsRef.orderByChild('Timestamp');
+
+    if (cutoff != null) {
+      final int cutoffTimestamp =
+          DateTime.now()
+              .subtract(cutoff)
+              .millisecondsSinceEpoch;
+
+      query = query.startAt(cutoffTimestamp);
+    } else {
+      query = query.limitToLast(limit);
+    }
+
+    final DatabaseEvent event =
+        await query.once();
 
     final Object? value =
         event.snapshot.value;
@@ -170,6 +189,7 @@ class PlantService {
   // ============================================================
   // SENSOR VALUE HELPERS
   // ============================================================
+
   int _toInt(dynamic value) {
     if (value is num) {
       return value.toInt();
