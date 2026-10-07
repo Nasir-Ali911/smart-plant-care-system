@@ -7,6 +7,7 @@ import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:smart_plant_care/firebase_options.dart';
 import 'package:smart_plant_care/services/firestore_service.dart';
 import 'package:smart_plant_care/services/notification_history_service.dart';
+import 'package:smart_plant_care/services/notification_settings_service.dart';
 
 /// Handles Firebase Cloud Messaging and local notifications
 /// for Smart Plant Care.
@@ -14,15 +15,15 @@ import 'package:smart_plant_care/services/notification_history_service.dart';
 /// Responsibilities:
 /// - Request notification permission
 /// - Obtain FCM device token
-/// - Save FCM token to the logged-in user's Firestore profile
-/// - Save token automatically after login
+/// - Save FCM token to Firestore
 /// - Listen for token changes
 /// - Handle foreground FCM messages
+/// - Save FCM messages to notification history
 /// - Display foreground notifications
 /// - Register background message handler
 /// - Handle notification taps
 /// - Generate AI recommendation notifications
-/// - Save AI notifications to Firebase notification history
+/// - Respect notification ON/OFF settings
 class NotificationService {
   NotificationService._();
 
@@ -41,6 +42,9 @@ class NotificationService {
 
   static final NotificationHistoryService _historyService =
       NotificationHistoryService.instance;
+
+  static final NotificationSettingsService _settingsService =
+      NotificationSettingsService.instance;
 
   // ============================================================
   // Local notifications
@@ -78,6 +82,266 @@ class NotificationService {
   static DateTime? _lastAIAlertTime;
 
   // ============================================================
+  // Notification settings helper
+  // ============================================================
+
+  /// Returns true when the notification is allowed by the
+  /// user's notification settings.
+  ///
+  /// Global setting:
+  ///   enabled
+  ///
+  /// Category settings:
+  ///   soilMoisture
+  ///   irrigation
+  ///   environmental
+  ///   deviceAlerts
+  static Future<bool> _isNotificationEnabled({
+    String? category,
+    String? type,
+  }) async {
+    try {
+      final Map<String, dynamic> settings =
+          await _settingsService.getSettings();
+
+      // ----------------------------------------------------------
+      // Global notification switch
+      // ----------------------------------------------------------
+
+      final bool globalEnabled =
+          settings['enabled'] != false;
+
+      if (!globalEnabled) {
+        debugPrint(
+          'NOTIFICATION SETTINGS: '
+          'Global notifications are OFF.',
+        );
+
+        return false;
+      }
+
+      // ----------------------------------------------------------
+      // Determine category
+      // ----------------------------------------------------------
+
+      final String combined =
+          '${category ?? ''} ${type ?? ''}'
+              .toLowerCase()
+              .trim();
+
+      // ----------------------------------------------------------
+      // Soil moisture
+      // ----------------------------------------------------------
+
+      if (combined.contains('soil') ||
+          combined.contains('moisture')) {
+        final bool enabled =
+            settings['soilMoisture'] != false;
+
+        debugPrint(
+          'NOTIFICATION SETTINGS: '
+          'Soil/Moisture = $enabled',
+        );
+
+        return enabled;
+      }
+
+      // ----------------------------------------------------------
+      // Irrigation
+      // ----------------------------------------------------------
+
+      if (combined.contains('irrigation') ||
+          combined.contains('watering') ||
+          combined.contains('water') ||
+          combined.contains('pump')) {
+        final bool enabled =
+            settings['irrigation'] != false;
+
+        debugPrint(
+          'NOTIFICATION SETTINGS: '
+          'Irrigation = $enabled',
+        );
+
+        return enabled;
+      }
+
+      // ----------------------------------------------------------
+      // Environmental
+      // ----------------------------------------------------------
+
+      if (combined.contains('environment') ||
+          combined.contains('temperature') ||
+          combined.contains('humidity') ||
+          combined.contains('light')) {
+        final bool enabled =
+            settings['environmental'] != false;
+
+        debugPrint(
+          'NOTIFICATION SETTINGS: '
+          'Environmental = $enabled',
+        );
+
+        return enabled;
+      }
+
+      // ----------------------------------------------------------
+      // Device alerts
+      // ----------------------------------------------------------
+
+      if (combined.contains('device') ||
+          combined.contains('offline') ||
+          combined.contains('connection') ||
+          combined.contains('connectivity') ||
+          combined.contains('error')) {
+        final bool enabled =
+            settings['deviceAlerts'] != false;
+
+        debugPrint(
+          'NOTIFICATION SETTINGS: '
+          'Device Alerts = $enabled',
+        );
+
+        return enabled;
+      }
+
+      // ----------------------------------------------------------
+      // Unknown/general category
+      // ----------------------------------------------------------
+
+      debugPrint(
+        'NOTIFICATION SETTINGS: '
+        'Unknown/general category. Global setting applies.',
+      );
+
+      return true;
+    } catch (e) {
+      debugPrint(
+        'NOTIFICATION SETTINGS ERROR: $e',
+      );
+
+      // Fail-safe:
+      // if settings cannot be read, allow the notification.
+      return true;
+    }
+  }
+
+  // ============================================================
+  // Extract FCM notification information
+  // ============================================================
+
+  static String _getFCMTitle(RemoteMessage message) {
+    return message.notification?.title ??
+        message.data['title']?.toString() ??
+        'Smart Plant Care';
+  }
+
+  static String _getFCMBody(RemoteMessage message) {
+    return message.notification?.body ??
+        message.data['body']?.toString() ??
+        'You have a new notification.';
+  }
+
+  static String _getFCMCategory(RemoteMessage message) {
+    return message.data['category']?.toString() ??
+        'General';
+  }
+
+  static String _getFCMPriority(RemoteMessage message) {
+    return message.data['priority']?.toString() ??
+        'LOW';
+  }
+
+  static String _getFCMType(RemoteMessage message) {
+    return message.data['type']?.toString() ??
+        _getFCMCategory(message);
+  }
+
+  // ============================================================
+  // Save FCM notification to Firebase history
+  // ============================================================
+
+  static Future<bool> _saveFCMNotificationToHistory(
+    RemoteMessage message,
+  ) async {
+    try {
+      final String title = _getFCMTitle(message);
+
+      final String body = _getFCMBody(message);
+
+      final String category =
+          _getFCMCategory(message);
+
+      final String priority =
+          _getFCMPriority(message);
+
+      final String type =
+          _getFCMType(message);
+
+      // ----------------------------------------------------------
+      // Check notification settings
+      // ----------------------------------------------------------
+
+      final bool enabled =
+          await _isNotificationEnabled(
+        category: category,
+        type: type,
+      );
+
+      if (!enabled) {
+        debugPrint(
+          'FCM HISTORY: Notification blocked by settings.',
+        );
+
+        debugPrint(
+          'Category: $category',
+        );
+
+        debugPrint(
+          'Type: $type',
+        );
+
+        return false;
+      }
+
+      // ----------------------------------------------------------
+      // Save to Firebase
+      // ----------------------------------------------------------
+
+      final String? historyId =
+          await _historyService.addNotification(
+        title: title,
+        message: body,
+        category: category,
+        priority: priority,
+        type: type,
+        timestamp: DateTime.now(),
+        isRead: false,
+        messageId: message.messageId,
+      );
+
+      debugPrint(
+        'FCM HISTORY: Notification saved.',
+      );
+
+      debugPrint(
+        'History ID: $historyId',
+      );
+
+      debugPrint(
+        'Message ID: ${message.messageId}',
+      );
+
+      return true;
+    } catch (e) {
+      debugPrint(
+        'FCM HISTORY ERROR: $e',
+      );
+
+      return false;
+    }
+  }
+
+  // ============================================================
   // Background FCM handler
   // ============================================================
 
@@ -90,18 +354,43 @@ class NotificationService {
     );
 
     debugPrint(
-      'FCM BACKGROUND MESSAGE: ${message.messageId}',
+      '========================================',
     );
 
     debugPrint(
-      'FCM BACKGROUND DATA: ${message.data}',
+      'FCM BACKGROUND MESSAGE',
     );
 
-    // Background FCM messages are handled by Firebase/Android.
+    debugPrint(
+      'Message ID: ${message.messageId}',
+    );
+
+    debugPrint(
+      'Title: ${message.notification?.title}',
+    );
+
+    debugPrint(
+      'Body: ${message.notification?.body}',
+    );
+
+    debugPrint(
+      'Data: ${message.data}',
+    );
+
+    debugPrint(
+      '========================================',
+    );
+
+    // ----------------------------------------------------------
+    // Save message to notification history.
     //
-    // We intentionally do not create another local notification
-    // here because notification messages are already displayed
-    // by Android when the application is in the background.
+    // For Firebase notification messages, Android itself may
+    // display the system notification while the app is in the
+    // background. We therefore DO NOT create another local
+    // notification here.
+    // ----------------------------------------------------------
+
+    await _saveFCMNotificationToHistory(message);
   }
 
   // ============================================================
@@ -169,14 +458,10 @@ class NotificationService {
     RemoteMessage message,
   ) async {
     final String title =
-        message.notification?.title ??
-            message.data['title'] ??
-            'Smart Plant Care';
+        _getFCMTitle(message);
 
     final String body =
-        message.notification?.body ??
-            message.data['body'] ??
-            'You have a new notification.';
+        _getFCMBody(message);
 
     final AndroidNotificationDetails
         androidNotificationDetails =
@@ -213,6 +498,63 @@ class NotificationService {
   }
 
   // ============================================================
+  // Handle FCM message received while app is foreground
+  // ============================================================
+
+  static Future<void> _handleForegroundMessage(
+    RemoteMessage message,
+  ) async {
+    debugPrint(
+      '========================================',
+    );
+
+    debugPrint(
+      'FCM FOREGROUND MESSAGE',
+    );
+
+    debugPrint(
+      'Message ID: ${message.messageId}',
+    );
+
+    debugPrint(
+      'Title: ${message.notification?.title}',
+    );
+
+    debugPrint(
+      'Body: ${message.notification?.body}',
+    );
+
+    debugPrint(
+      'Data: ${message.data}',
+    );
+
+    debugPrint(
+      '========================================',
+    );
+
+    // ----------------------------------------------------------
+    // Save to notification history.
+    // ----------------------------------------------------------
+
+    final bool saved =
+        await _saveFCMNotificationToHistory(message);
+
+    // ----------------------------------------------------------
+    // If settings allow it, display local notification.
+    // ----------------------------------------------------------
+
+    if (!saved) {
+      debugPrint(
+        'FCM FOREGROUND: Notification suppressed.',
+      );
+
+      return;
+    }
+
+    await _showForegroundNotification(message);
+  }
+
+  // ============================================================
   // AI RECOMMENDATION NOTIFICATION
   // ============================================================
 
@@ -231,6 +573,24 @@ class NotificationService {
   }) async {
     try {
       // ----------------------------------------------------------
+      // Check notification settings
+      // ----------------------------------------------------------
+
+      final bool enabled =
+          await _isNotificationEnabled(
+        category: category,
+        type: type,
+      );
+
+      if (!enabled) {
+        debugPrint(
+          'AI NOTIFICATION: Blocked by notification settings.',
+        );
+
+        return;
+      }
+
+      // ----------------------------------------------------------
       // Duplicate protection
       // ----------------------------------------------------------
 
@@ -247,6 +607,7 @@ class NotificationService {
         debugPrint(
           'AI NOTIFICATION: Duplicate alert suppressed.',
         );
+
         return;
       }
 
@@ -558,36 +919,7 @@ class NotificationService {
 
     FirebaseMessaging.onMessage.listen(
       (RemoteMessage message) async {
-        debugPrint(
-          '========================================',
-        );
-
-        debugPrint(
-          'FCM FOREGROUND MESSAGE',
-        );
-
-        debugPrint(
-          'Message ID: ${message.messageId}',
-        );
-
-        debugPrint(
-          'Title: ${message.notification?.title}',
-        );
-
-        debugPrint(
-          'Body: ${message.notification?.body}',
-        );
-
-        debugPrint(
-          'Data: ${message.data}',
-        );
-
-        debugPrint(
-          '========================================',
-        );
-
-        // Display Android notification banner.
-        await _showForegroundNotification(message);
+        await _handleForegroundMessage(message);
       },
     );
 
@@ -596,7 +928,7 @@ class NotificationService {
     // ----------------------------------------------------------
 
     FirebaseMessaging.onMessageOpenedApp.listen(
-      (RemoteMessage message) {
+      (RemoteMessage message) async {
         debugPrint(
           'FCM NOTIFICATION TAP',
         );
@@ -608,6 +940,9 @@ class NotificationService {
         debugPrint(
           'Data: ${message.data}',
         );
+
+        // Make sure the notification exists in history.
+        await _saveFCMNotificationToHistory(message);
       },
     );
 
@@ -629,6 +964,11 @@ class NotificationService {
 
       debugPrint(
         'Data: ${initialMessage.data}',
+      );
+
+      // Make sure the notification exists in history.
+      await _saveFCMNotificationToHistory(
+        initialMessage,
       );
     }
   }

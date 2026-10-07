@@ -1,29 +1,21 @@
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_database/firebase_database.dart';
 
-/// Stores and manages notification history for the authenticated user.
-///
-/// Realtime Database structure:
-///
-/// Users
-///   └── {uid}
-///       └── Notifications
-///           └── {notificationId}
-///               ├── title
-///               ├── message
-///               ├── category
-///               ├── priority
-///               ├── type
-///               ├── timestamp
-///               └── isRead
 class NotificationHistoryService {
   NotificationHistoryService._();
 
   static final NotificationHistoryService instance =
       NotificationHistoryService._();
 
-  final FirebaseAuth _auth = FirebaseAuth.instance;
-  final FirebaseDatabase _database = FirebaseDatabase.instance;
+  final FirebaseAuth _auth =
+      FirebaseAuth.instance;
+
+  final FirebaseDatabase _database =
+      FirebaseDatabase.instance;
+
+  // ============================================================
+  // Notifications reference
+  // ============================================================
 
   DatabaseReference? get _notificationsRef {
     final User? user = _auth.currentUser;
@@ -38,7 +30,7 @@ class NotificationHistoryService {
   }
 
   // ============================================================
-  // ADD NOTIFICATION
+  // Add notification
   // ============================================================
 
   Future<String?> addNotification({
@@ -52,13 +44,49 @@ class NotificationHistoryService {
     String? messageId,
   }) async {
     try {
-      final DatabaseReference? ref = _notificationsRef;
+      final DatabaseReference? ref =
+          _notificationsRef;
 
       if (ref == null) {
         return null;
       }
 
-      final DatabaseReference notificationRef = ref.push();
+      // ----------------------------------------------------------
+      // Prevent duplicate FCM history records.
+      //
+      // The same FCM message can pass through:
+      // - foreground handler
+      // - background handler
+      // - notification tap handler
+      // - terminated-app handler
+      //
+      // messageId lets us recognize the same notification.
+      // ----------------------------------------------------------
+
+      if (messageId != null &&
+          messageId.trim().isNotEmpty) {
+        final DataSnapshot existing =
+            await ref
+                .orderByChild('messageId')
+                .equalTo(messageId)
+                .get();
+
+        if (existing.exists) {
+          for (final DataSnapshot child
+              in existing.children) {
+            if (child.key != null) {
+              return child.key;
+            }
+          }
+        }
+      }
+
+      // ----------------------------------------------------------
+      // Create new history record
+      // ----------------------------------------------------------
+
+      final DatabaseReference notificationRef =
+          ref.push();
 
       await notificationRef.set({
         'title': title,
@@ -67,108 +95,113 @@ class NotificationHistoryService {
         'priority': priority,
         'type': type ?? category,
         'timestamp':
-            (timestamp ?? DateTime.now()).millisecondsSinceEpoch,
+            (timestamp ?? DateTime.now())
+                .millisecondsSinceEpoch,
         'isRead': isRead,
         'messageId': messageId,
       });
 
       return notificationRef.key;
     } catch (e) {
-      print(
-        'NOTIFICATION HISTORY: Failed to save notification: $e',
-      );
-
       return null;
     }
   }
 
   // ============================================================
-  // MARK ONE AS READ
+  // Mark one notification as read
   // ============================================================
 
   Future<void> markAsRead(
     String notificationId,
   ) async {
     try {
-      final DatabaseReference? ref = _notificationsRef;
+      final DatabaseReference? ref =
+          _notificationsRef;
 
       if (ref == null) {
         return;
       }
 
-      await ref.child(notificationId).update({
+      await ref
+          .child(notificationId)
+          .update({
         'isRead': true,
       });
     } catch (e) {
-      print(
-        'NOTIFICATION HISTORY: Failed to mark as read: $e',
-      );
+      // Ignore individual update errors.
     }
   }
 
   // ============================================================
-  // MARK ALL AS READ
+  // Mark all notifications as read
   // ============================================================
 
   Future<void> markAllAsRead() async {
     try {
-      final DatabaseReference? ref = _notificationsRef;
+      final DatabaseReference? ref =
+          _notificationsRef;
 
       if (ref == null) {
         return;
       }
 
-      final DataSnapshot snapshot = await ref.get();
+      final DataSnapshot snapshot =
+          await ref.get();
 
-      if (!snapshot.exists || snapshot.value == null) {
+      if (!snapshot.exists) {
         return;
       }
 
-      final Map<String, dynamic> updates = {};
+      final Map<String, dynamic> updates =
+          <String, dynamic>{};
 
-      for (final DataSnapshot child in snapshot.children) {
-        updates['${child.key}/isRead'] = true;
+      for (final DataSnapshot child
+          in snapshot.children) {
+        if (child.key != null) {
+          updates[
+              '${child.key}/isRead'] = true;
+        }
       }
 
       if (updates.isNotEmpty) {
         await ref.update(updates);
       }
     } catch (e) {
-      print(
-        'NOTIFICATION HISTORY: Failed to mark all as read: $e',
-      );
+      // Ignore bulk update errors.
     }
   }
 
   // ============================================================
-  // DELETE ONE
+  // Delete one notification
   // ============================================================
 
   Future<void> deleteNotification(
     String notificationId,
   ) async {
     try {
-      final DatabaseReference? ref = _notificationsRef;
+      final DatabaseReference? ref =
+          _notificationsRef;
 
       if (ref == null) {
         return;
       }
 
-      await ref.child(notificationId).remove();
+      await ref
+          .child(notificationId)
+          .remove();
     } catch (e) {
-      print(
-        'NOTIFICATION HISTORY: Failed to delete notification: $e',
-      );
+      // Ignore delete errors.
     }
   }
 
   // ============================================================
-  // CLEAR ALL
+  // Delete all notifications
   // ============================================================
 
   Future<void> clearAll() async {
     try {
-      final DatabaseReference? ref = _notificationsRef;
+      final DatabaseReference? ref =
+          _notificationsRef;
 
       if (ref == null) {
         return;
@@ -176,9 +209,7 @@ class NotificationHistoryService {
 
       await ref.remove();
     } catch (e) {
-      print(
-        'NOTIFICATION HISTORY: Failed to clear history: $e',
-      );
+      // Ignore clear errors.
     }
   }
 }

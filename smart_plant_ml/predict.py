@@ -849,6 +849,88 @@ def save_api_output(api_result):
 
 
 # ============================================================
+# AUTOMATIC PRODUCTION NOTIFICATION
+# ============================================================
+
+def send_automatic_notification(api_result):
+    """
+    Send an automatic production notification based on
+    the AI soil forecast.
+
+    The actual notification rules, user settings,
+    FCM tokens, notification history and duplicate
+    suppression are handled by notification_engine.py.
+
+    This function is only called in --live mode.
+    """
+
+    try:
+
+        from notification_engine import (
+            send_production_notifications,
+        )
+
+    except ImportError as error:
+
+        print()
+        print(
+            "AUTOMATIC NOTIFICATION ERROR:"
+        )
+        print(
+            "notification_engine.py could not "
+            "be imported."
+        )
+        print(
+            f"Details: {error}"
+        )
+
+        return {
+            "success": False,
+            "error": str(error),
+        }
+
+    try:
+
+        notification_result = (
+            send_production_notifications(
+                api_result
+            )
+        )
+
+        print()
+        print(
+            "AUTOMATIC NOTIFICATION RESULT:"
+        )
+
+        print(
+            json.dumps(
+                notification_result,
+                indent=2,
+                default=str,
+            )
+        )
+
+        return notification_result
+
+    except Exception as error:
+
+        print()
+        print(
+            "AUTOMATIC NOTIFICATION ERROR:"
+        )
+
+        print(
+            f"{type(error).__name__}: "
+            f"{error}"
+        )
+
+        return {
+            "success": False,
+            "error": str(error),
+        }
+
+
+# ============================================================
 # MAIN
 # ============================================================
 
@@ -896,7 +978,9 @@ def main():
         action="store_true",
         help=(
             "Read sensor history directly "
-            "from Firebase Realtime Database."
+            "from Firebase Realtime Database "
+            "and automatically process production "
+            "notifications."
         ),
     )
 
@@ -1098,6 +1182,28 @@ def main():
         f"API JSON saved to: "
         f"{output_path}"
     )
+
+    # --------------------------------------------------------
+    # AUTOMATIC PRODUCTION NOTIFICATION
+    #
+    # Only --live mode triggers notification processing.
+    #
+    # --export and --file remain safe offline/test modes.
+    # --------------------------------------------------------
+
+    if args.live:
+
+        send_automatic_notification(
+            api_result
+        )
+
+    else:
+
+        print()
+        print(
+            "Notification skipped: "
+            "offline mode."
+        )
 
 
 # ============================================================
