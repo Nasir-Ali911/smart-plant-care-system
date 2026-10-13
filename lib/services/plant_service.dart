@@ -88,17 +88,42 @@ class PlantService {
   // MANUAL PUMP CONTROL
   // ============================================================
 
-  Future<void> triggerManualWatering(
-    bool turnOn,
-  ) async {
-    final DatabaseReference controlRef =
-        _dbRef.child('SmartPlant/Control');
+  
+  // ============================================================
+  // MANUAL PUMP CONTROL
+  // ============================================================
 
-    await controlRef.set({
-      'PumpManual': turnOn ? 'ON' : 'OFF',
-      'Timestamp': ServerValue.timestamp,
-    });
+  Future<void> triggerManualWatering(bool turnOn) async {
+    final DatabaseReference pumpCommandRef =
+        _dbRef.child('SmartPlant/Control/PumpManual');
+
+    final DatabaseReference timestampRef =
+        _dbRef.child('SmartPlant/Control/Timestamp');
+
+    try {
+      final String command = turnOn ? 'ON' : 'OFF';
+
+      // Update only the pump command.
+      await pumpCommandRef.set(command);
+
+      // Record when the command was sent.
+      await timestampRef.set(ServerValue.timestamp);
+
+      // Read back the saved value to verify the write.
+      final DatabaseEvent event = await pumpCommandRef.once();
+      final String? savedCommand =
+          event.snapshot.value?.toString().toUpperCase();
+
+      if (savedCommand != command) {
+        throw Exception(
+          'Expected $command, but Firebase returned $savedCommand',
+        );
+      }
+    } catch (e) {
+      throw Exception('Manual pump command failed: $e');
+    }
   }
+
 
   // ============================================================
   // HISTORICAL SENSOR LOGS
