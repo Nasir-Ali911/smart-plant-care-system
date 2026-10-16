@@ -67,8 +67,8 @@
 // Enter your existing Wi-Fi credentials here.
 // Do NOT upload real credentials to GitHub.
 
-#define WIFI_SSID "Infinix NOTE 40"
-#define WIFI_PASSWORD "124124125"
+#define WIFI_SSID "Kaka-chaniyan-ala"
+#define WIFI_PASSWORD "03227571971"
 
 
 // ============================================================
@@ -133,7 +133,7 @@ const unsigned long WIFI_TIMEOUT = 20000;
 const unsigned long WIFI_RETRY_DELAY = 5000;
 
 // Pump duration
-const unsigned long PUMP_WATER_DURATION = 3000;
+const unsigned long PUMP_WATER_DURATION = 6000;
 
 // Manual command check every second
 const unsigned long CONTROL_CHECK_INTERVAL = 1000;
@@ -983,7 +983,7 @@ void runWateringCycle(
   Serial.println(preLightIntensity);
 
   Serial.println(
-    "Pump ON for 3 seconds."
+    "Pump ON for 6 seconds."
   );
 
 

@@ -13,413 +13,422 @@ import 'package:smart_plant_care/services/auth_service.dart';
 class ProfileScreen extends StatelessWidget {
   const ProfileScreen({super.key});
 
-  // ============================================================
-  // LOGOUT DIALOG
-  // ============================================================
+  static const Color _backgroundColor = Color(0xFFE4EDE6);
+  static const Color _primaryColor = Color(0xFF134E39);
 
-  void _showLogoutDialog(BuildContext context) {
-    showDialog(
+  void _showMessage(BuildContext context, String message) {
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(
+          content: Text(message),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+  }
+
+  void _openSettings(BuildContext context) {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => SettingsScreen(),
+      ),
+    );
+  }
+
+  Future<void> _showLogoutDialog(BuildContext context) async {
+    final shouldLogout = await showDialog<bool>(
       context: context,
-      builder: (dialogContext) {
-        return AlertDialog(
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(16),
+      builder: (dialogContext) => AlertDialog(
+        title: Text(
+          'Log Out',
+          style: GoogleFonts.poppins(
+            fontWeight: FontWeight.w600,
           ),
-          title: Text(
-            'Logout',
-            style: GoogleFonts.poppins(
-              fontWeight: FontWeight.bold,
-              color: const Color(0xFF134E39),
-            ),
+        ),
+        content: Text(
+          'Are you sure you want to log out?',
+          style: GoogleFonts.poppins(),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Cancel'),
           ),
-          content: Text(
-            'Are you sure you want to log out of your account?',
-            style: GoogleFonts.poppins(
-              color: const Color(0xFF5A7865),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: _primaryColor,
+              foregroundColor: Colors.white,
             ),
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('Log Out'),
           ),
-          actions: [
-            TextButton(
-              onPressed: () {
-                Navigator.pop(dialogContext);
-              },
-              child: Text(
-                'Cancel',
-                style: GoogleFonts.poppins(
-                  color: const Color(0xFF5A7865),
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-            ),
-            ElevatedButton(
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.red,
-                foregroundColor: Colors.white,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(8),
-                ),
-              ),
-              onPressed: () async {
-                Navigator.pop(dialogContext);
+        ],
+      ),
+    );
 
-                await AuthService().signOut();
+    if (shouldLogout != true || !context.mounted) return;
 
-                if (context.mounted) {
-                  context.go('/login');
-                }
-              },
-              child: Text(
-                'Logout',
-                style: GoogleFonts.poppins(
-                  color: Colors.white,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
+    try {
+      await AuthService().signOut();
+
+      if (context.mounted) {
+        context.go('/login');
+      }
+    } catch (e) {
+      if (context.mounted) {
+        _showMessage(context, 'Unable to log out. Please try again.');
+      }
+    }
+  }
+
+  int _countRecords(dynamic value) {
+    if (value is Map) {
+      return value.length;
+    }
+
+    if (value is List) {
+      return value.where((item) => item != null).length;
+    }
+
+    return 0;
+  }
+
+  Widget _buildStatistics(String? uid) {
+    if (uid == null) {
+      return const Wrap(
+        spacing: 10,
+        runSpacing: 10,
+        children: [
+          SizedBox(
+            width: 150,
+            child: StatCard(
+              title: 'My Plants',
+              value: '0',
+              icon: Icons.eco_outlined,
             ),
-          ],
+          ),
+          SizedBox(
+            width: 150,
+            child: StatCard(
+              title: 'Watering Events',
+              value: '0',
+              icon: Icons.water_drop_outlined,
+            ),
+          ),
+        ],
+      );
+    }
+
+    final plantsRef =
+        FirebaseDatabase.instance.ref('Users/$uid/Plants');
+
+    final wateringRef =
+        FirebaseDatabase.instance.ref('SmartPlant/WateringEvents');
+
+    return StreamBuilder<DatabaseEvent>(
+      stream: plantsRef.onValue,
+      builder: (context, plantSnapshot) {
+        final plantCount = plantSnapshot.hasData
+            ? _countRecords(plantSnapshot.data!.snapshot.value)
+            : 0;
+
+        return StreamBuilder<DatabaseEvent>(
+          stream: wateringRef.onValue,
+          builder: (context, wateringSnapshot) {
+            final wateringCount = wateringSnapshot.hasData
+                ? _countRecords(wateringSnapshot.data!.snapshot.value)
+                : 0;
+
+            return Wrap(
+              spacing: 10,
+              runSpacing: 10,
+              children: [
+                SizedBox(
+                  width: 150,
+                  child: StatCard(
+                    title: 'My Plants',
+                    value: plantSnapshot.hasError
+                        ? '—'
+                        : plantCount.toString(),
+                    icon: Icons.eco_outlined,
+                  ),
+                ),
+                SizedBox(
+                  width: 150,
+                  child: StatCard(
+                    title: 'Watering Events',
+                    value: wateringSnapshot.hasError
+                        ? '—'
+                        : wateringCount.toString(),
+                    icon: Icons.water_drop_outlined,
+                  ),
+                ),
+              ],
+            );
+          },
         );
       },
     );
   }
 
-  // ============================================================
-  // BUILD
-  // ============================================================
+  Widget _sectionTitle(String title) {
+    return Padding(
+      padding: const EdgeInsets.only(
+        left: 4,
+        bottom: 8,
+        top: 18,
+      ),
+      child: Text(
+        title,
+        style: GoogleFonts.poppins(
+          fontSize: 14,
+          fontWeight: FontWeight.w600,
+          color: _primaryColor,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildCard({required List<Widget> children}) {
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(18),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.04),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Column(
+        children: children,
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
-    final uid =
-        FirebaseAuth.instance.currentUser?.uid;
+    final uid = FirebaseAuth.instance.currentUser?.uid;
 
     return Scaffold(
-      backgroundColor: const Color(0xFFE4EDE6),
-
+      backgroundColor: _backgroundColor,
       appBar: AppBar(
-        backgroundColor: Colors.white,
+        backgroundColor: _backgroundColor,
         elevation: 0,
         centerTitle: true,
-
-        // Since this screen is also used as a bottom
-        // navigation tab, don't force Navigator.pop().
         leading: IconButton(
           icon: const Icon(
-            Icons.arrow_back,
-            color: Color(0xFF134E39),
+            Icons.arrow_back_ios_new,
+            color: _primaryColor,
           ),
           onPressed: () {
-            if (Navigator.canPop(context)) {
-              Navigator.pop(context);
+            if (Navigator.of(context).canPop()) {
+              Navigator.of(context).pop();
             } else {
               context.go('/home');
             }
           },
         ),
-
         title: Text(
-          'Profile',
+          'My Profile',
           style: GoogleFonts.poppins(
-            fontSize: 18,
-            fontWeight: FontWeight.bold,
-            color: const Color(0xFF134E39),
+            color: _primaryColor,
+            fontSize: 19,
+            fontWeight: FontWeight.w600,
           ),
         ),
-
         actions: [
           IconButton(
+            tooltip: 'Edit profile',
             icon: const Icon(
               Icons.edit_outlined,
-              color: Color(0xFF134E39),
+              color: _primaryColor,
             ),
-            onPressed: () {
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text(
-                    'Profile editing will be available soon.',
-                    style: GoogleFonts.poppins(
-                      color: Colors.white,
-                    ),
-                  ),
-                  backgroundColor:
-                      const Color(0xFF134E39),
-                ),
-              );
-            },
+            onPressed: () => _showMessage(
+              context,
+              'Profile editing is not available yet.',
+            ),
           ),
         ],
       ),
+      body: SafeArea(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.fromLTRB(18, 12, 18, 28),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const ProfileHeader(),
 
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(20),
-        child: Column(
-          children: [
-            // =====================================================
-            // PROFILE HEADER
-            // =====================================================
+              _sectionTitle('Your Overview'),
 
-            const ProfileHeader(),
+              _buildStatistics(uid),
 
-            const SizedBox(height: 20),
+              _sectionTitle('Account'),
 
-            // =====================================================
-            // STATISTICS
-            // =====================================================
-
-            _buildStatistics(uid),
-
-            const SizedBox(height: 20),
-
-            // =====================================================
-            // QUICK ACTIONS
-            // =====================================================
-
-            Container(
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius:
-                    BorderRadius.circular(16),
-              ),
-              child: Column(
+              _buildCard(
                 children: [
                   ProfileTile(
-                    icon: Icons.person_outline,
+                    icon: Icons.edit_outlined,
                     title: 'Edit Profile',
-                    onTap: () {
-                      ScaffoldMessenger.of(context)
-                          .showSnackBar(
-                        SnackBar(
-                          content: Text(
-                            'Profile editing will be available soon.',
-                            style:
-                                GoogleFonts.poppins(
-                              color: Colors.white,
-                            ),
-                          ),
-                          backgroundColor:
-                              const Color(0xFF134E39),
-                        ),
-                      );
-                    },
+                    onTap: () => _showMessage(
+                      context,
+                      'Profile editing is not available yet.',
+                    ),
                   ),
-
+                  const Divider(height: 1, indent: 56),
                   ProfileTile(
                     icon: Icons.eco_outlined,
                     title: 'My Plants',
-                    onTap: () {
-                      context.go('/home');
-                    },
+                    onTap: () => context.go('/home'),
                   ),
-
+                  const Divider(height: 1, indent: 56),
                   ProfileTile(
-                    icon: Icons.wifi_rounded,
+                    icon: Icons.devices_outlined,
                     title: 'Connected Devices',
-                    onTap: () {
-                      ScaffoldMessenger.of(context)
-                          .showSnackBar(
-                        SnackBar(
-                          content: Text(
-                            'Device management is available from Device Setup.',
-                            style:
-                                GoogleFonts.poppins(
-                              color: Colors.white,
-                            ),
-                          ),
-                          backgroundColor:
-                              const Color(0xFF134E39),
-                        ),
-                      );
-                    },
+                    onTap: () => _showMessage(
+                      context,
+                      'Device management is not available here yet.',
+                    ),
                   ),
+                ],
+              ),
 
+              _sectionTitle('Preferences & Support'),
+
+              _buildCard(
+                children: [
                   ProfileTile(
                     icon: Icons.settings_outlined,
                     title: 'Settings',
-                    onTap: () {
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (context) =>
-                              const SettingsScreen(),
-                        ),
-                      );
-                    },
+                    onTap: () => _openSettings(context),
                   ),
-
+                  const Divider(height: 1, indent: 56),
                   ProfileTile(
-                    icon: Icons.notifications_outlined,
+                    icon: Icons.notifications_none_outlined,
                     title: 'Notification Settings',
-                    onTap: () {},
+                    onTap: () => _openSettings(context),
                   ),
-
+                  const Divider(height: 1, indent: 56),
                   ProfileTile(
                     icon: Icons.lock_outline,
                     title: 'Privacy & Security',
-                    onTap: () {},
+                    onTap: () => _showMessage(
+                      context,
+                      'Privacy options are not available on this page yet.',
+                    ),
                   ),
-
+                  const Divider(height: 1, indent: 56),
                   ProfileTile(
                     icon: Icons.help_outline,
                     title: 'Help & Support',
-                    onTap: () {},
+                    onTap: () => _showMessage(
+                      context,
+                      'Help and support will be available soon.',
+                    ),
                   ),
-
+                  const Divider(height: 1, indent: 56),
                   ProfileTile(
                     icon: Icons.info_outline,
                     title: 'About App',
-                    onTap: () {},
+                    onTap: () {
+                      showAboutDialog(
+                        context: context,
+                        applicationName: 'Smart Plant Care',
+                        applicationVersion: '1.0.0',
+                        applicationIcon: const Icon(
+                          Icons.local_florist,
+                          color: _primaryColor,
+                          size: 36,
+                        ),
+                        children: [
+                          const Text(
+                            'An intelligent plant monitoring and '
+                            'irrigation system with sensor monitoring, '
+                            'automated watering, and AI-based forecasting.',
+                          ),
+                        ],
+                      );
+                    },
                   ),
                 ],
               ),
-            ),
 
-            const SizedBox(height: 20),
+              _sectionTitle('App Information'),
 
-            // =====================================================
-            // APP INFORMATION
-            // =====================================================
-
-            Container(
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius:
-                    BorderRadius.circular(16),
-              ),
-              child: Column(
+              _buildCard(
                 children: [
                   ProfileTile(
-                    icon: Icons.system_update_alt,
-                    title: 'App Version (v1.0.0)',
-                    onTap: () {},
+                    icon: Icons.phone_android_outlined,
+                    title: 'App Version',
+                    onTap: () => _showMessage(
+                      context,
+                      'Smart Plant Care version 1.0.0',
+                    ),
                   ),
+                  const Divider(height: 1, indent: 56),
                   ProfileTile(
                     icon: Icons.description_outlined,
                     title: 'Terms & Conditions',
-                    onTap: () {},
+                    onTap: () => _showMessage(
+                      context,
+                      'Terms and conditions are not available yet.',
+                    ),
                   ),
+                  const Divider(height: 1, indent: 56),
                   ProfileTile(
                     icon: Icons.privacy_tip_outlined,
                     title: 'Privacy Policy',
-                    onTap: () {},
+                    onTap: () => _showMessage(
+                      context,
+                      'Privacy policy is not available yet.',
+                    ),
                   ),
                 ],
               ),
-            ),
 
-            const SizedBox(height: 24),
+              const SizedBox(height: 24),
 
-            // =====================================================
-            // LOGOUT
-            // =====================================================
-
-            SizedBox(
-              width: double.infinity,
-              child: OutlinedButton.icon(
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: Colors.red,
-                  side: const BorderSide(
-                    color: Colors.red,
-                    width: 1.5,
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  onPressed: () => _showLogoutDialog(context),
+                  icon: const Icon(Icons.logout),
+                  label: Text(
+                    'Log Out',
+                    style: GoogleFonts.poppins(
+                      fontWeight: FontWeight.w600,
+                    ),
                   ),
-                  padding:
-                      const EdgeInsets.symmetric(
-                    vertical: 14,
-                  ),
-                  shape: RoundedRectangleBorder(
-                    borderRadius:
-                        BorderRadius.circular(12),
-                  ),
-                ),
-                onPressed: () =>
-                    _showLogoutDialog(context),
-                icon: const Icon(
-                  Icons.logout_rounded,
-                ),
-                label: Text(
-                  'Logout',
-                  style: GoogleFonts.poppins(
-                    fontSize: 15,
-                    fontWeight: FontWeight.bold,
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: Colors.red.shade700,
+                    side: BorderSide(
+                      color: Colors.red.shade200,
+                    ),
+                    padding: const EdgeInsets.symmetric(vertical: 15),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(14),
+                    ),
                   ),
                 ),
               ),
-            ),
 
-            const SizedBox(height: 10),
-          ],
+              const SizedBox(height: 12),
+
+              Center(
+                child: Text(
+                  'Smart Plant Care • v1.0.0',
+                  style: GoogleFonts.poppins(
+                    color: Colors.black54,
+                    fontSize: 11,
+                  ),
+                ),
+              ),
+            ],
+          ),
         ),
       ),
-    );
-  }
-
-  // ============================================================
-  // STATISTICS
-  // ============================================================
-
-  Widget _buildStatistics(String? uid) {
-    if (uid == null) {
-      return _statisticsGrid(
-        totalPlants: 0,
-      );
-    }
-
-    final plantsRef = FirebaseDatabase
-        .instance
-        .ref('Users/$uid/Plants');
-
-    return StreamBuilder<DatabaseEvent>(
-      stream: plantsRef.onValue,
-      builder: (context, snapshot) {
-        int totalPlants = 0;
-
-        if (snapshot.hasData &&
-            snapshot.data!.snapshot.value != null) {
-          final value =
-              snapshot.data!.snapshot.value;
-
-          if (value is Map) {
-            totalPlants = value.length;
-          }
-        }
-
-        return _statisticsGrid(
-          totalPlants: totalPlants,
-        );
-      },
-    );
-  }
-
-  Widget _statisticsGrid({
-    required int totalPlants,
-  }) {
-    return GridView.count(
-      crossAxisCount: 2,
-      crossAxisSpacing: 12,
-      mainAxisSpacing: 12,
-      shrinkWrap: true,
-      physics:
-          const NeverScrollableScrollPhysics(),
-      childAspectRatio: 1.6,
-      children: [
-        StatCard(
-          title: 'Plants',
-          value: totalPlants.toString(),
-          icon: Icons.eco,
-        ),
-        const StatCard(
-          title: 'Connected Devices',
-          value: '1',
-          icon: Icons.wifi,
-        ),
-        const StatCard(
-          title: 'Successful Irrigations',
-          value: '0',
-          icon: Icons.water_drop,
-        ),
-        const StatCard(
-          title: 'Health Score',
-          value: '92%',
-          icon: Icons.favorite,
-        ),
-      ],
     );
   }
 }

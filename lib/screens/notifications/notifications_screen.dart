@@ -325,24 +325,83 @@ class _NotificationsScreenState
   // FILTER
   // ============================================================
 
-  List<Map<String, dynamic>> _filterNotifications(
-    List<Map<String, dynamic>> notifications,
-  ) {
-    if (_selectedFilter == 'All') {
-      return notifications;
-    }
-
-    return notifications.where(
-      (Map<String, dynamic> notification) {
-        final String category =
-            notification['category']
-                ?.toString() ??
-            '';
-
-        return category == _selectedFilter;
-      },
-    ).toList();
+  
+List<Map<String, dynamic>> _filterNotifications(
+  List<Map<String, dynamic>> notifications,
+) {
+  if (_selectedFilter == 'All') {
+    return notifications;
   }
+
+  return notifications.where(
+    (Map<String, dynamic> notification) {
+      final String category =
+          (notification['category']?.toString() ?? '')
+              .trim()
+              .toLowerCase();
+
+      final String type =
+          (notification['type']?.toString() ?? '')
+              .trim()
+              .toLowerCase();
+
+      final String title =
+          (notification['title']?.toString() ?? '')
+              .trim()
+              .toLowerCase();
+
+      final String message =
+          (notification['message']?.toString() ?? '')
+              .trim()
+              .toLowerCase();
+
+      final String searchable =
+          '$category $type $title $message';
+
+      switch (_selectedFilter.toLowerCase()) {
+        case 'sensors':
+          return [
+            'sensor',
+            'soil',
+            'temperature',
+            'humidity',
+            'light',
+            'moisture',
+          ].any(searchable.contains);
+
+        case 'irrigation':
+          return [
+            'irrigation',
+            'watering',
+            'pump',
+            'water',
+          ].any(searchable.contains);
+
+        case 'devices':
+          return [
+            'device',
+            'connection',
+            'offline',
+            'online',
+            'disconnect',
+          ].any(searchable.contains);
+
+        case 'system':
+          return [
+            'system',
+            'error',
+            'warning',
+            'failure',
+            'notification',
+          ].any(searchable.contains);
+
+        default:
+          return category == _selectedFilter.toLowerCase();
+      }
+    },
+  ).toList();
+}
+
 
   // ============================================================
   // MARK ONE AS READ
