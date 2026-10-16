@@ -7,7 +7,7 @@ import 'package:google_fonts/google_fonts.dart';
 
 import 'package:smart_plant_care/screens/add_plant/add_plant_screen.dart';
 import 'package:smart_plant_care/screens/analytics/analytics_screen.dart';
-import 'package:smart_plant_care/screens/device_setup/device_setup_screen.dart';
+
 import 'package:smart_plant_care/screens/notifications/notifications_screen.dart';
 import 'package:smart_plant_care/screens/profile/profile_screen.dart';
 import 'package:smart_plant_care/screens/plants/plants_screen.dart';
@@ -829,12 +829,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
-  Future<void> _openDeviceSetup() async {
-    await Navigator.push(
-      context,
-      MaterialPageRoute(builder: (context) => const DeviceSetupScreen()),
-    );
-  }
 
   Future<void> _openNotifications() async {
     await Navigator.push(
@@ -2499,15 +2493,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
               iconColor: Colors.blue,
               onTap: _showWateringDialog,
             ),
-
-            QuickActionCard(
-              title: 'Device Setup',
-              subtitle: 'Configure your device',
-              icon: Icons.settings_outlined,
-              iconColor: Colors.orange,
-              onTap: _openDeviceSetup,
-            ),
-
+            
             QuickActionCard(
               title: 'Analytics',
               subtitle: 'View historical data',
