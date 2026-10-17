@@ -55,7 +55,7 @@ class SensorCard extends StatelessWidget {
           duration: const Duration(milliseconds: 300),
           curve: Curves.easeInOut,
           alignment: Alignment.topLeft,
-          padding: EdgeInsets.all(isSmallScreen ? 12 : 16),
+          padding: EdgeInsets.all(isSmallScreen ? 10 : 12),
           decoration: BoxDecoration(
             gradient: LinearGradient(
               begin: Alignment.topLeft,
@@ -109,8 +109,8 @@ class SensorCard extends StatelessWidget {
                       return Transform.scale(scale: scale, child: child);
                     },
                     child: Container(
-                      width: isSmallScreen ? 38 : 44,
-                      height: isSmallScreen ? 38 : 44,
+                      width: isSmallScreen ? 34 : 40,
+                      height: isSmallScreen ? 34 : 40,
                       decoration: BoxDecoration(
                         gradient: LinearGradient(
                           begin: Alignment.topLeft,
@@ -134,15 +134,16 @@ class SensorCard extends StatelessWidget {
                     ),
                   ),
 
-                  const SizedBox(width: 10),
+                  const SizedBox(width: 8),
 
                   Expanded(
                     child: Text(
                       title,
                       maxLines: 2,
+                      softWrap: true,
                       overflow: TextOverflow.ellipsis,
                       style: GoogleFonts.poppins(
-                        fontSize: isSmallScreen ? 12 : 13,
+                        fontSize: isSmallScreen ? 11 : 12,
                         fontWeight: FontWeight.w600,
                         color: Colors.grey.shade700,
                         letterSpacing: 0.3,
@@ -171,7 +172,7 @@ class SensorCard extends StatelessWidget {
                 ],
               ),
 
-              SizedBox(height: isSmallScreen ? 10 : 12),
+              SizedBox(height: isSmallScreen ? 8 : 9),
 
               // --------------------------------------------------
               // VALUE
@@ -244,7 +245,7 @@ class SensorCard extends StatelessWidget {
               // STATUS CHIP
               // --------------------------------------------------
               if (status != null && status!.isNotEmpty) ...[
-                const SizedBox(height: 8),
+                const SizedBox(height: 6),
                 FittedBox(
                   fit: BoxFit.scaleDown,
                   alignment: Alignment.centerLeft,

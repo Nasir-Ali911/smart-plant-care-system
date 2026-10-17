@@ -1,271 +1,201 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:share_plus/share_plus.dart';
+
+import 'package:smart_plant_care/screens/about/about_screen.dart';
+import 'package:smart_plant_care/services/app_settings.dart';
 import 'widgets/section_header.dart';
 import 'widgets/settings_tile.dart';
 import 'widgets/settings_switch_tile.dart';
-import 'package:smart_plant_care/screens/about/about_screen.dart'; // <- Imported About Screen
 
-class SettingsScreen extends StatefulWidget {
+class SettingsScreen extends StatelessWidget {
   const SettingsScreen({super.key});
 
-  @override
-  State<SettingsScreen> createState() => _SettingsScreenState();
-}
+  static const Color _green = Color(0xFF134E39);
 
-class _SettingsScreenState extends State<SettingsScreen> {
-  // Local state variables for switches
-  bool _isDarkMode = false;
-  bool _pushNotifications = true;
-  bool _emailNotifications = false;
-  bool _reminderNotifications = true;
-  bool _automaticIrrigation = true;
-  bool _temperatureAlerts = true;
-  bool _soilMoistureAlerts = true;
-  bool _humidityAlerts = false;
-
-  void _showResetDialog() {
-    showDialog(
+  Future<void> _showInfo(
+    BuildContext context,
+    String title,
+    String body,
+  ) async {
+    await showDialog<void>(
       context: context,
-      builder: (BuildContext context) {
-        return AlertDialog(
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(16),
+      builder: (dialogContext) => AlertDialog(
+        title: Text(
+          title,
+          style: GoogleFonts.poppins(
+            fontWeight: FontWeight.w600,
+            color: _green,
           ),
-          title: Text(
-            'Reset Settings',
-            style: GoogleFonts.poppins(
-              fontWeight: FontWeight.bold,
-              color: const Color(0xFF134E39),
-            ),
+        ),
+        content: SingleChildScrollView(
+          child: Text(body, style: GoogleFonts.poppins(fontSize: 13)),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('Close'),
           ),
-          content: Text(
-            'Are you sure you want to reset all settings to their default values?',
-            style: GoogleFonts.poppins(
-              color: const Color(0xFF5A7865),
-            ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _resetSettings(BuildContext context) async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text(
+          'Reset Settings',
+          style: GoogleFonts.poppins(
+            fontWeight: FontWeight.bold,
+            color: _green,
           ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: Text(
-                'Cancel',
-                style: GoogleFonts.poppins(color: const Color(0xFF5A7865)),
-              ),
+        ),
+        content: Text(
+          'Switch the app appearance back to Light Mode?',
+          style: GoogleFonts.poppins(),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(
+              backgroundColor: _green,
+              foregroundColor: Colors.white,
             ),
-            ElevatedButton(
-              style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFF134E39),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(8),
-                ),
-              ),
-              onPressed: () {
-                Navigator.pop(context);
-                setState(() {
-                  _isDarkMode = false;
-                  _pushNotifications = true;
-                  _emailNotifications = false;
-                  _reminderNotifications = true;
-                  _automaticIrrigation = true;
-                  _temperatureAlerts = true;
-                  _soilMoistureAlerts = true;
-                  _humidityAlerts = false;
-                });
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Text(
-                      'Settings reset successfully.',
-                      style: GoogleFonts.poppins(),
-                    ),
-                    backgroundColor: const Color(0xFF134E39),
-                    behavior: SnackBarBehavior.floating,
-                  ),
-                );
-              },
-              child: Text(
-                'Reset',
-                style: GoogleFonts.poppins(color: Colors.white),
-              ),
-            ),
-          ],
-        );
-      },
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('Reset'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm != true) return;
+    await AppSettings.instance.setDarkMode(false);
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Appearance reset to Light Mode.')),
     );
   }
 
   @override
   Widget build(BuildContext context) {
+    final dark = Theme.of(context).brightness == Brightness.dark;
+
     return Scaffold(
-      backgroundColor: const Color(0xFFE4EDE6),
       appBar: AppBar(
-        backgroundColor: Colors.white,
-        elevation: 0,
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back_ios_new_rounded, color: Color(0xFF134E39), size: 20),
-          onPressed: () => Navigator.pop(context),
-        ),
         title: Text(
           'Settings',
           style: GoogleFonts.poppins(
             fontSize: 18,
             fontWeight: FontWeight.bold,
-            color: const Color(0xFF134E39),
           ),
         ),
         centerTitle: true,
       ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.symmetric(horizontal: 20.0, vertical: 12.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            // --- Section 1: Appearance ---
-            const SectionHeader(title: 'Appearance'),
-            SettingsSwitchTile(
-              title: 'Dark Mode',
-              icon: Icons.dark_mode_outlined,
-              value: _isDarkMode,
-              onChanged: (val) => setState(() => _isDarkMode = val),
-            ),
-            SettingsTile(
-              title: 'Language',
-              icon: Icons.language_outlined,
-              trailingText: 'English',
-              onTap: () {},
-            ),
-            SettingsTile(
-              title: 'Font Size',
-              icon: Icons.text_fields_rounded,
-              trailingText: 'Medium',
-              onTap: () {},
-            ),
+      body: ListView(
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+        children: [
+          const SectionHeader(title: 'Appearance'),
+          SettingsSwitchTile(
+            title: 'Dark Mode',
+            icon: Icons.dark_mode_outlined,
+            value: dark,
+            onChanged: (value) => AppSettings.instance.setDarkMode(value),
+          ),
 
-            // --- Section 2: Notifications ---
-            const SectionHeader(title: 'Notifications'),
-            SettingsSwitchTile(
-              title: 'Push Notifications',
-              icon: Icons.notifications_active_outlined,
-              value: _pushNotifications,
-              onChanged: (val) => setState(() => _pushNotifications = val),
+          const SectionHeader(title: 'Device Help'),
+          SettingsTile(
+            title: 'Wi-Fi Troubleshooting',
+            icon: Icons.wifi_rounded,
+            onTap: () => _showInfo(
+              context,
+              'Wi-Fi Troubleshooting',
+              'The ESP8266 uses the Wi-Fi credentials configured in its firmware. '
+                  'To change networks, update those credentials in the firmware and upload it again. '
+                  'Make sure the controller has stable power and that the selected Wi-Fi network has internet access.',
             ),
-            SettingsSwitchTile(
-              title: 'Email Notifications',
-              icon: Icons.email_outlined,
-              value: _emailNotifications,
-              onChanged: (val) => setState(() => _emailNotifications = val),
+          ),
+          SettingsTile(
+            title: 'Reconnect Device',
+            icon: Icons.settings_input_antenna_rounded,
+            onTap: () => _showInfo(
+              context,
+              'Reconnect Device',
+              '1. Check that the ESP8266 is powered.\n'
+                  '2. Check the Wi-Fi credentials in the firmware.\n'
+                  '3. Confirm the network can access Firebase.\n'
+                  '4. Restart the controller and allow it time to reconnect.\n\n'
+                  'This app cannot remotely change the controller’s Wi-Fi credentials.',
             ),
-            SettingsSwitchTile(
-              title: 'Reminder Notifications',
-              icon: Icons.alarm_rounded,
-              value: _reminderNotifications,
-              onChanged: (val) => setState(() => _reminderNotifications = val),
-            ),
+          ),
 
-            // --- Section 3: Plant Monitoring ---
-            const SectionHeader(title: 'Plant Monitoring'),
-            SettingsSwitchTile(
-              title: 'Automatic Irrigation',
-              icon: Icons.water_drop_outlined,
-              value: _automaticIrrigation,
-              onChanged: (val) => setState(() => _automaticIrrigation = val),
+          const SectionHeader(title: 'Application'),
+          SettingsTile(
+            title: 'Privacy & Data',
+            icon: Icons.privacy_tip_outlined,
+            onTap: () => _showInfo(
+              context,
+              'Privacy & Data',
+              'Smart Plant Care uses Firebase Authentication and Realtime Database for account and plant data. '
+                  'Camera images may be uploaded to the configured image-hosting service. '
+                  'Avoid storing passwords or other sensitive personal information in plant records.',
             ),
-            SettingsSwitchTile(
-              title: 'Temperature Alerts',
-              icon: Icons.thermostat_outlined,
-              value: _temperatureAlerts,
-              onChanged: (val) => setState(() => _temperatureAlerts = val),
+          ),
+          SettingsTile(
+            title: 'Terms & Conditions',
+            icon: Icons.description_outlined,
+            onTap: () => _showInfo(
+              context,
+              'Terms & Conditions',
+              'Smart Plant Care is a monitoring and assistance tool. Sensor readings and forecasts may be imperfect. '
+                  'Check water availability, tubing, electrical safety, and actual plant conditions before relying on irrigation automation.',
             ),
-            SettingsSwitchTile(
-              title: 'Soil Moisture Alerts',
-              icon: Icons.grass_rounded,
-              value: _soilMoistureAlerts,
-              onChanged: (val) => setState(() => _soilMoistureAlerts = val),
-            ),
-            SettingsSwitchTile(
-              title: 'Humidity Alerts',
-              icon: Icons.air_rounded,
-              value: _humidityAlerts,
-              onChanged: (val) => setState(() => _humidityAlerts = val),
-            ),
-
-            // --- Section 4: Device ---
-            const SectionHeader(title: 'Device'),
-            SettingsTile(
-              title: 'Wi-Fi Settings',
-              icon: Icons.wifi_rounded,
-              onTap: () {},
-            ),
-            SettingsTile(
-              title: 'Reconnect Device',
-              icon: Icons.settings_input_antenna_rounded,
-              onTap: () {},
-            ),
-            SettingsTile(
-              title: 'Firmware Version',
-              icon: Icons.info_outline_rounded,
-              trailingText: 'v1.0.0',
-              onTap: () {},
-            ),
-
-            // --- Section 5: Application ---
-            const SectionHeader(title: 'Application'),
-            SettingsTile(
-              title: 'Privacy Policy',
-              icon: Icons.privacy_tip_outlined,
-              onTap: () {},
-            ),
-            SettingsTile(
-              title: 'Terms & Conditions',
-              icon: Icons.description_outlined,
-              onTap: () {},
-            ),
-            SettingsTile(
-              title: 'About App', // <- Linked to AboutScreen
-              icon: Icons.info_outline_rounded,
-              onTap: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (context) => const AboutScreen(),
-                  ),
-                );
-              },
-            ),
-            SettingsTile(
-              title: 'Rate Application',
-              icon: Icons.star_outline_rounded,
-              onTap: () {},
-            ),
-            SettingsTile(
-              title: 'Share Application',
-              icon: Icons.share_outlined,
-              onTap: () {},
-            ),
-
-            const SizedBox(height: 24),
-
-            // --- Bottom Reset Button ---
-            OutlinedButton(
-              style: OutlinedButton.styleFrom(
-                side: const BorderSide(color: Color(0xFF134E39), width: 1.5),
-                padding: const EdgeInsets.symmetric(vertical: 14),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
-                ),
-              ),
-              onPressed: _showResetDialog,
-              child: Text(
-                'Reset Settings',
-                style: GoogleFonts.poppins(
-                  fontSize: 14,
-                  fontWeight: FontWeight.bold,
-                  color: const Color(0xFF134E39),
-                ),
+          ),
+          SettingsTile(
+            title: 'About App',
+            icon: Icons.info_outline_rounded,
+            onTap: () => Navigator.push(
+              context,
+              MaterialPageRoute<void>(
+                builder: (_) => const AboutScreen(),
               ),
             ),
-            const SizedBox(height: 32),
-          ],
-        ),
+          ),
+          SettingsTile(
+            title: 'Share Application',
+            icon: Icons.share_outlined,
+            onTap: () => SharePlus.instance.share(
+              ShareParams(
+                text: 'Smart Plant Care — plant monitoring, irrigation control, alerts, and AI-based soil forecasting.',
+              ),
+            ),
+          ),
+
+          const SizedBox(height: 24),
+          OutlinedButton(
+            style: OutlinedButton.styleFrom(
+              side: const BorderSide(color: _green, width: 1.5),
+              padding: const EdgeInsets.symmetric(vertical: 14),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+            ),
+            onPressed: () => _resetSettings(context),
+            child: Text(
+              'Reset Appearance',
+              style: GoogleFonts.poppins(
+                fontSize: 14,
+                fontWeight: FontWeight.bold,
+                color: _green,
+              ),
+            ),
+          ),
+          const SizedBox(height: 32),
+        ],
       ),
     );
   }

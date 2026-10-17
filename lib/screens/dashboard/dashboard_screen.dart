@@ -2197,7 +2197,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
           crossAxisCount: 2,
           crossAxisSpacing: 12,
           mainAxisSpacing: 12,
-          childAspectRatio: 1.45,
+          childAspectRatio: 1.0,
           shrinkWrap: true,
           physics: const NeverScrollableScrollPhysics(),
           children: [
@@ -2470,38 +2470,48 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
         const SizedBox(height: 12),
 
-        GridView.count(
-          crossAxisCount: 2,
-          crossAxisSpacing: 12,
-          mainAxisSpacing: 12,
-          childAspectRatio: 1.7,
-          shrinkWrap: true,
-          physics: const NeverScrollableScrollPhysics(),
-          children: [
-            QuickActionCard(
-              title: 'Add Plant',
-              subtitle: 'Register a new plant',
-              icon: Icons.add_circle_outline,
-              iconColor: _kPrimary,
-              onTap: _openAddPlant,
-            ),
+        LayoutBuilder(
+          builder: (context, constraints) {
+            final double spacing = 12;
+            final double cardWidth = (constraints.maxWidth - spacing) / 2;
 
-            QuickActionCard(
-              title: 'Water Now',
-              subtitle: 'Control pump manually',
-              icon: Icons.water_drop_outlined,
-              iconColor: Colors.blue,
-              onTap: _showWateringDialog,
-            ),
-            
-            QuickActionCard(
-              title: 'Analytics',
-              subtitle: 'View historical data',
-              icon: Icons.analytics_outlined,
-              iconColor: _kPrimary,
-              onTap: _openAnalytics,
-            ),
-          ],
+            return Wrap(
+              spacing: spacing,
+              runSpacing: spacing,
+              children: [
+                SizedBox(
+                  width: cardWidth,
+                  child: QuickActionCard(
+                    title: 'Add Plant',
+                    subtitle: 'Register a new plant',
+                    icon: Icons.add_circle_outline,
+                    iconColor: _kPrimary,
+                    onTap: _openAddPlant,
+                  ),
+                ),
+                SizedBox(
+                  width: cardWidth,
+                  child: QuickActionCard(
+                    title: 'Water Now',
+                    subtitle: 'Control pump manually',
+                    icon: Icons.water_drop_outlined,
+                    iconColor: Colors.blue,
+                    onTap: _showWateringDialog,
+                  ),
+                ),
+                SizedBox(
+                  width: constraints.maxWidth,
+                  child: QuickActionCard(
+                    title: 'Analytics',
+                    subtitle: 'View historical data',
+                    icon: Icons.analytics_outlined,
+                    iconColor: _kPrimary,
+                    onTap: _openAnalytics,
+                  ),
+                ),
+              ],
+            );
+          },
         ),
       ],
     );
@@ -2518,20 +2528,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
         _sectionTitle(
           'Recent Activity',
           icon: Icons.history,
-          trailing: TextButton(
-            onPressed: _openAnalytics,
-            style: TextButton.styleFrom(
-              foregroundColor: _kPrimary,
-              padding: const EdgeInsets.symmetric(horizontal: 8),
-            ),
-            child: Text(
-              'View All',
-              style: GoogleFonts.poppins(
-                fontSize: 12,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-          ),
         ),
 
         const SizedBox(height: 8),
