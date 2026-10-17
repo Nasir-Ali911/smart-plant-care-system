@@ -314,7 +314,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
   }
 
   Future<void> _showAboutApp() async {
-    await showAboutDialog(
+    showAboutDialog(
       context: context,
       applicationName: 'Smart Plant Care',
       applicationVersion: '1.0.0',
