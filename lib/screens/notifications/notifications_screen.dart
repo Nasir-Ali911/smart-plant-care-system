@@ -12,8 +12,11 @@ import 'package:smart_plant_care/screens/notification_settings/notification_sett
 import 'package:smart_plant_care/services/notification_history_service.dart';
 
 class NotificationsScreen extends StatefulWidget {
+  final VoidCallback? onBack;
+
   const NotificationsScreen({
     super.key,
+    this.onBack,
   });
 
   @override
@@ -50,8 +53,14 @@ class _NotificationsScreenState
   // ============================================================
 
   void _goBackToHome() {
+  if (widget.onBack != null) {
+    widget.onBack!();
+  } else if (Navigator.of(context).canPop()) {
+    Navigator.of(context).pop();
+  } else {
     context.go('/home');
   }
+}
 
   // ============================================================
   // PARSE FIREBASE NOTIFICATIONS

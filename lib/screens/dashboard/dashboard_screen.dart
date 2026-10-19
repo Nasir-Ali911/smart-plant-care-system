@@ -2470,48 +2470,25 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
         const SizedBox(height: 12),
 
-        LayoutBuilder(
-          builder: (context, constraints) {
-            final double spacing = 12;
-            final double cardWidth = (constraints.maxWidth - spacing) / 2;
-
-            return Wrap(
-              spacing: spacing,
-              runSpacing: spacing,
-              children: [
-                SizedBox(
-                  width: cardWidth,
-                  child: QuickActionCard(
-                    title: 'Add Plant',
-                    subtitle: 'Register a new plant',
-                    icon: Icons.add_circle_outline,
-                    iconColor: _kPrimary,
-                    onTap: _openAddPlant,
-                  ),
-                ),
-                SizedBox(
-                  width: cardWidth,
-                  child: QuickActionCard(
-                    title: 'Water Now',
-                    subtitle: 'Control pump manually',
-                    icon: Icons.water_drop_outlined,
-                    iconColor: Colors.blue,
-                    onTap: _showWateringDialog,
-                  ),
-                ),
-                SizedBox(
-                  width: constraints.maxWidth,
-                  child: QuickActionCard(
-                    title: 'Analytics',
-                    subtitle: 'View historical data',
-                    icon: Icons.analytics_outlined,
-                    iconColor: _kPrimary,
-                    onTap: _openAnalytics,
-                  ),
-                ),
-              ],
-            );
-          },
+        Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            QuickActionCard(
+              title: 'Add Plant',
+              subtitle: 'Register a new plant',
+              icon: Icons.add_circle_outline,
+              iconColor: _kPrimary,
+              onTap: _openAddPlant,
+            ),
+            const SizedBox(height: 12),
+            QuickActionCard(
+              title: 'Analytics',
+              subtitle: 'View historical data',
+              icon: Icons.analytics_outlined,
+              iconColor: _kPrimary,
+              onTap: _openAnalytics,
+            ),
+          ],
         ),
       ],
     );
@@ -2712,23 +2689,37 @@ class _DashboardScreenState extends State<DashboardScreen> {
   // ==============================================================
 
   Widget _buildBody() {
-    switch (_currentIndex) {
-      case 0:
-        return _buildHomeScreen();
+  switch (_currentIndex) {
+    case 0:
+      return _buildHomeScreen();
 
-      case 1:
-        return const PlantsScreen();
+    case 1:
+      return const PlantsScreen();
 
-      case 2:
-        return const NotificationsScreen();
+    case 2:
+      return NotificationsScreen(
+        onBack: () {
+          if (!mounted) return;
+          setState(() => _currentIndex = 0);
+        },
+      );
 
-      case 3:
-        return const ProfileScreen();
+    case 3:
+      return ProfileScreen(
+        onBack: () {
+          if (!mounted) return;
+          setState(() => _currentIndex = 0);
+        },
+        onMyPlantsTap: () {
+          if (!mounted) return;
+          setState(() => _currentIndex = 1);
+        },
+      );
 
-      default:
-        return _buildHomeScreen();
-    }
+    default:
+      return _buildHomeScreen();
   }
+}
 
   // ==============================================================
   // MAIN BUILD

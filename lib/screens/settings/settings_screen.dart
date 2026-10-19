@@ -41,50 +41,10 @@ class SettingsScreen extends StatelessWidget {
     );
   }
 
-  Future<void> _resetSettings(BuildContext context) async {
-    final confirm = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: Text(
-          'Reset Settings',
-          style: GoogleFonts.poppins(
-            fontWeight: FontWeight.bold,
-            color: _green,
-          ),
-        ),
-        content: Text(
-          'Switch the app appearance back to Light Mode?',
-          style: GoogleFonts.poppins(),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext, false),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            style: FilledButton.styleFrom(
-              backgroundColor: _green,
-              foregroundColor: Colors.white,
-            ),
-            onPressed: () => Navigator.pop(dialogContext, true),
-            child: const Text('Reset'),
-          ),
-        ],
-      ),
-    );
 
-    if (confirm != true) return;
-    await AppSettings.instance.setDarkMode(false);
-    if (!context.mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Appearance reset to Light Mode.')),
-    );
-  }
 
   @override
   Widget build(BuildContext context) {
-    final dark = Theme.of(context).brightness == Brightness.dark;
-
     return Scaffold(
       appBar: AppBar(
         title: Text(
@@ -99,14 +59,6 @@ class SettingsScreen extends StatelessWidget {
       body: ListView(
         padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
         children: [
-          const SectionHeader(title: 'Appearance'),
-          SettingsSwitchTile(
-            title: 'Dark Mode',
-            icon: Icons.dark_mode_outlined,
-            value: dark,
-            onChanged: (value) => AppSettings.instance.setDarkMode(value),
-          ),
-
           const SectionHeader(title: 'Device Help'),
           SettingsTile(
             title: 'Wi-Fi Troubleshooting',
@@ -174,27 +126,7 @@ class SettingsScreen extends StatelessWidget {
               ),
             ),
           ),
-
           const SizedBox(height: 24),
-          OutlinedButton(
-            style: OutlinedButton.styleFrom(
-              side: const BorderSide(color: _green, width: 1.5),
-              padding: const EdgeInsets.symmetric(vertical: 14),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
-              ),
-            ),
-            onPressed: () => _resetSettings(context),
-            child: Text(
-              'Reset Appearance',
-              style: GoogleFonts.poppins(
-                fontSize: 14,
-                fontWeight: FontWeight.bold,
-                color: _green,
-              ),
-            ),
-          ),
-          const SizedBox(height: 32),
         ],
       ),
     );

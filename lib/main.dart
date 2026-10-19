@@ -34,7 +34,7 @@ class MyApp extends StatelessWidget {
       builder: (context, _) {
         return MaterialApp.router(
           title: 'Smart Plant Care',
-          themeMode: AppSettings.instance.themeMode,
+          themeMode: ThemeMode.light,
           theme: ThemeData(
             brightness: Brightness.light,
             colorScheme: ColorScheme.fromSeed(

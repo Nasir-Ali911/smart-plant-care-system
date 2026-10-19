@@ -9,9 +9,17 @@ import 'package:smart_plant_care/screens/profile/widgets/profile_tile.dart';
 import 'package:smart_plant_care/screens/profile/widgets/stat_card.dart';
 import 'package:smart_plant_care/screens/settings/settings_screen.dart';
 import 'package:smart_plant_care/services/auth_service.dart';
+import 'package:smart_plant_care/screens/notification_settings/notification_settings_screen.dart';
 
 class ProfileScreen extends StatefulWidget {
-  const ProfileScreen({super.key});
+  final VoidCallback? onBack;
+  final VoidCallback? onMyPlantsTap;
+
+  const ProfileScreen({
+    super.key,
+    this.onBack,
+    this.onMyPlantsTap,
+  });
 
   @override
   State<ProfileScreen> createState() => _ProfileScreenState();
@@ -45,7 +53,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
       ),
     );
   }
-
+Future<void> _openNotificationSettings() async {
+  await Navigator.of(context).push(
+    MaterialPageRoute<void>(
+      builder: (_) => const NotificationSettingsScreen(),
+    ),
+  );
+}
   Future<void> _showEditProfileDialog() async {
     final user = _user;
     if (user == null) {
@@ -506,12 +520,14 @@ class _ProfileScreenState extends State<ProfileScreen> {
           tooltip: 'Back',
           icon: const Icon(Icons.arrow_back_ios_new, color: _primaryColor),
           onPressed: () {
-            if (Navigator.of(context).canPop()) {
-              Navigator.of(context).pop();
-            } else {
-              context.go('/home');
-            }
-          },
+  if (widget.onBack != null) {
+    widget.onBack!();
+  } else if (Navigator.of(context).canPop()) {
+    Navigator.of(context).pop();
+  } else {
+    context.go('/home');
+  }
+},
         ),
         title: Text(
           'My Profile',
@@ -556,7 +572,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   ProfileTile(
                     icon: Icons.eco_outlined,
                     title: 'My Plants',
-                    onTap: () => context.go('/home'),
+                    onTap: widget.onMyPlantsTap ?? () => context.go('/home'),
                   ),
                 ],
               ),
@@ -572,7 +588,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   ProfileTile(
                     icon: Icons.notifications_none_outlined,
                     title: 'Notification Settings',
-                    onTap: _openSettings,
+                    onTap: _openNotificationSettings,
                   ),
                   const Divider(height: 1, indent: 56),
                   ProfileTile(
