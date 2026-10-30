@@ -40,7 +40,6 @@ class _AddPlantScreenState extends State<AddPlantScreen> {
   final TextEditingController _notesController =
       TextEditingController();
 
-  // Controller for custom watering schedule
   final TextEditingController _customScheduleController =
       TextEditingController();
 
@@ -111,7 +110,7 @@ class _AddPlantScreenState extends State<AddPlantScreen> {
         maxHeight: 1200,
       );
 
-      if (pickedFile == null) {
+      if (pickedFile == null || !mounted) {
         return;
       }
 
@@ -125,9 +124,7 @@ class _AddPlantScreenState extends State<AddPlantScreen> {
         SnackBar(
           content: Text(
             'Unable to select image: $e',
-            style: GoogleFonts.poppins(
-              color: Colors.white,
-            ),
+            style: GoogleFonts.poppins(color: Colors.white),
           ),
           backgroundColor: Colors.redAccent,
         ),
@@ -140,6 +137,8 @@ class _AddPlantScreenState extends State<AddPlantScreen> {
   // ============================================================
 
   void _removeImage() {
+    if (_isSaving) return;
+
     setState(() {
       _selectedImage = null;
     });
@@ -151,7 +150,7 @@ class _AddPlantScreenState extends State<AddPlantScreen> {
 
   Widget _buildImagePickerCard() {
     return GestureDetector(
-      onTap: _pickImage,
+      onTap: _isSaving ? null : _pickImage,
       child: Container(
         width: double.infinity,
         height: 190,
@@ -226,10 +225,7 @@ class _AddPlantScreenState extends State<AddPlantScreen> {
             height: double.infinity,
             child: FutureBuilder<List<int>>(
               future: _selectedImage!.readAsBytes(),
-              builder: (
-                context,
-                snapshot,
-              ) {
+              builder: (context, snapshot) {
                 if (snapshot.connectionState ==
                     ConnectionState.waiting) {
                   return const Center(
@@ -239,8 +235,7 @@ class _AddPlantScreenState extends State<AddPlantScreen> {
                   );
                 }
 
-                if (snapshot.hasError ||
-                    !snapshot.hasData) {
+                if (snapshot.hasError || !snapshot.hasData) {
                   return const Center(
                     child: Icon(
                       Icons.broken_image_outlined,
@@ -270,9 +265,7 @@ class _AddPlantScreenState extends State<AddPlantScreen> {
               vertical: 10,
             ),
             decoration: BoxDecoration(
-              color: Colors.black.withValues(
-                alpha: 0.55,
-              ),
+              color: Colors.black.withValues(alpha: 0.55),
               borderRadius: const BorderRadius.only(
                 bottomLeft: Radius.circular(16),
                 bottomRight: Radius.circular(16),
@@ -314,9 +307,7 @@ class _AddPlantScreenState extends State<AddPlantScreen> {
                 borderRadius: BorderRadius.circular(20),
                 boxShadow: [
                   BoxShadow(
-                    color: Colors.black.withValues(
-                      alpha: 0.15,
-                    ),
+                    color: Colors.black.withValues(alpha: 0.15),
                     blurRadius: 6,
                     offset: const Offset(0, 2),
                   ),
@@ -338,18 +329,15 @@ class _AddPlantScreenState extends State<AddPlantScreen> {
   // DATE PICKER
   // ============================================================
 
-  Future<void> _selectDate(
-    BuildContext context,
-  ) async {
+  Future<void> _selectDate(BuildContext context) async {
+    if (_isSaving) return;
+
     final DateTime? picked = await showDatePicker(
       context: context,
       initialDate: DateTime.now(),
       firstDate: DateTime(2020),
       lastDate: DateTime(2030),
-      builder: (
-        context,
-        child,
-      ) {
+      builder: (context, child) {
         return Theme(
           data: ThemeData.light().copyWith(
             colorScheme: const ColorScheme.light(
@@ -364,10 +352,10 @@ class _AddPlantScreenState extends State<AddPlantScreen> {
       },
     );
 
-    if (picked != null) {
+    if (picked != null && mounted) {
       setState(() {
         _dateController.text =
-            "${picked.day}/${picked.month}/${picked.year}";
+            '${picked.day}/${picked.month}/${picked.year}';
       });
     }
   }
@@ -377,6 +365,8 @@ class _AddPlantScreenState extends State<AddPlantScreen> {
   // ============================================================
 
   Future<void> _showCustomScheduleDialog() async {
+    if (_isSaving) return;
+
     _customScheduleController.clear();
 
     final String? customSchedule = await showDialog<String>(
@@ -405,9 +395,7 @@ class _AddPlantScreenState extends State<AddPlantScreen> {
                   color: Colors.black54,
                 ),
               ),
-
               const SizedBox(height: 18),
-
               TextField(
                 controller: _customScheduleController,
                 autofocus: true,
@@ -447,12 +435,9 @@ class _AddPlantScreenState extends State<AddPlantScreen> {
               },
               child: Text(
                 'Cancel',
-                style: GoogleFonts.poppins(
-                  color: Colors.grey,
-                ),
+                style: GoogleFonts.poppins(color: Colors.grey),
               ),
             ),
-
             ElevatedButton(
               style: ElevatedButton.styleFrom(
                 backgroundColor: const Color(0xFF134E39),
@@ -510,10 +495,10 @@ class _AddPlantScreenState extends State<AddPlantScreen> {
   // ============================================================
 
   Future<void> _handleSave() async {
-    // ----------------------------------------------------------
-    // VALIDATION
-    // ----------------------------------------------------------
+    // Prevent multiple save requests.
+    if (_isSaving) return;
 
+    // Validate required fields.
     if (_nameController.text.trim().isEmpty ||
         _speciesController.text.trim().isEmpty ||
         _locationController.text.trim().isEmpty ||
@@ -523,32 +508,18 @@ class _AddPlantScreenState extends State<AddPlantScreen> {
         SnackBar(
           content: Text(
             'Please fill in all required fields.',
-            style: GoogleFonts.poppins(
-              color: Colors.white,
-            ),
+            style: GoogleFonts.poppins(color: Colors.white),
           ),
           backgroundColor: Colors.redAccent,
         ),
       );
-
       return;
     }
 
-    // ----------------------------------------------------------
-    // PREVENT DOUBLE CLICK
-    // ----------------------------------------------------------
-
-    if (_isSaving) {
-      return;
-    }
-
+    // Activate loading overlay.
     setState(() {
       _isSaving = true;
     });
-
-    // ----------------------------------------------------------
-    // SAVE TO FIREBASE
-    // ----------------------------------------------------------
 
     try {
       await PlantService().addPlant(
@@ -567,9 +538,7 @@ class _AddPlantScreenState extends State<AddPlantScreen> {
         SnackBar(
           content: Text(
             'Plant added successfully!',
-            style: GoogleFonts.poppins(
-              color: Colors.white,
-            ),
+            style: GoogleFonts.poppins(color: Colors.white),
           ),
           backgroundColor: const Color(0xFF134E39),
         ),
@@ -579,22 +548,89 @@ class _AddPlantScreenState extends State<AddPlantScreen> {
     } catch (e) {
       if (!mounted) return;
 
-      setState(() {
-        _isSaving = false;
-      });
-
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
             'Failed to add plant: $e',
-            style: GoogleFonts.poppins(
-              color: Colors.white,
-            ),
+            style: GoogleFonts.poppins(color: Colors.white),
           ),
           backgroundColor: Colors.redAccent,
         ),
       );
+    } finally {
+      // Reset loading state if the screen is still active.
+      if (mounted) {
+        setState(() {
+          _isSaving = false;
+        });
+      }
     }
+  }
+
+  // ============================================================
+  // LOADING OVERLAY
+  // ============================================================
+
+  Widget _buildLoadingOverlay() {
+    return Positioned.fill(
+      child: AbsorbPointer(
+        absorbing: true,
+        child: Container(
+          color: Colors.black.withValues(alpha: 0.35),
+          child: Center(
+            child: Container(
+              margin: const EdgeInsets.symmetric(horizontal: 35),
+              padding: const EdgeInsets.symmetric(
+                horizontal: 35,
+                vertical: 30,
+              ),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(20),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.12),
+                    blurRadius: 15,
+                    offset: const Offset(0, 5),
+                  ),
+                ],
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const SizedBox(
+                    width: 45,
+                    height: 45,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 4,
+                      color: Color(0xFF134E39),
+                    ),
+                  ),
+                  const SizedBox(height: 22),
+                  Text(
+                    'Adding Your Plant...',
+                    style: GoogleFonts.poppins(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w600,
+                      color: const Color(0xFF134E39),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    'Please wait while we save your plant.',
+                    textAlign: TextAlign.center,
+                    style: GoogleFonts.poppins(
+                      fontSize: 12,
+                      color: Colors.grey,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
   }
 
   // ============================================================
@@ -602,9 +638,7 @@ class _AddPlantScreenState extends State<AddPlantScreen> {
   // ============================================================
 
   @override
-  Widget build(
-    BuildContext context,
-  ) {
+  Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: const Color(0xFFF4F7F5),
 
@@ -615,19 +649,17 @@ class _AddPlantScreenState extends State<AddPlantScreen> {
       appBar: AppBar(
         backgroundColor: Colors.white,
         elevation: 0,
-
         leading: IconButton(
           icon: const Icon(
             Icons.arrow_back,
             color: Color(0xFF134E39),
           ),
-          onPressed: () {
-            if (!_isSaving) {
-              Navigator.pop(context);
-            }
-          },
+          onPressed: _isSaving
+              ? null
+              : () {
+                  Navigator.pop(context);
+                },
         ),
-
         title: Text(
           'Add New Plant',
           style: GoogleFonts.poppins(
@@ -639,172 +671,151 @@ class _AddPlantScreenState extends State<AddPlantScreen> {
       ),
 
       // ========================================================
-      // BODY
+      // BODY WITH LOADING OVERLAY
       // ========================================================
 
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // ====================================================
-            // IMAGE
-            // ====================================================
+      body: Stack(
+        children: [
+          SingleChildScrollView(
+            padding: const EdgeInsets.all(16.0),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // IMAGE
+                _buildImagePickerCard(),
 
-            _buildImagePickerCard(),
+                const SizedBox(height: 18),
 
-            const SizedBox(height: 18),
+                // PLANT INFORMATION
+                const SectionTitle(
+                  title: 'Plant Information',
+                ),
 
-            // ====================================================
-            // PLANT INFORMATION
-            // ====================================================
+                CustomTextField(
+                  label: 'Plant Name *',
+                  hintText: 'e.g., Monstera Deliciosa',
+                  controller: _nameController,
+                ),
 
-            const SectionTitle(
-              title: 'Plant Information',
-            ),
+                const SizedBox(height: 14),
 
-            CustomTextField(
-              label: 'Plant Name *',
-              hintText: 'e.g., Monstera Deliciosa',
-              controller: _nameController,
-            ),
+                CustomTextField(
+                  label: 'Species *',
+                  hintText: 'e.g., Monstera',
+                  controller: _speciesController,
+                ),
 
-            const SizedBox(height: 14),
+                const SizedBox(height: 14),
 
-            CustomTextField(
-              label: 'Species *',
-              hintText: 'e.g., Monstera',
-              controller: _speciesController,
-            ),
+                CustomTextField(
+                  label: 'Location *',
+                  hintText: 'e.g., Living Room Balcony',
+                  controller: _locationController,
+                ),
 
-            const SizedBox(height: 14),
+                const SizedBox(height: 14),
 
-            CustomTextField(
-              label: 'Location *',
-              hintText: 'e.g., Living Room Balcony',
-              controller: _locationController,
-            ),
+                CustomTextField(
+                  label: 'Pot Number (Optional)',
+                  hintText: 'e.g., Pot #4',
+                  controller: _potController,
+                ),
 
-            const SizedBox(height: 14),
+                const SizedBox(height: 10),
 
-            CustomTextField(
-              label: 'Pot Number (Optional)',
-              hintText: 'e.g., Pot #4',
-              controller: _potController,
-            ),
+                // CATEGORY
+                const SectionTitle(
+                  title: 'Plant Category',
+                ),
 
-            const SizedBox(height: 10),
+                DropdownField(
+                  label: 'Category *',
+                  hintText: 'Select category',
+                  value: _selectedCategory,
+                  items: _categories,
+                  onChanged: (value) {
+                    if (_isSaving) return;
 
-            // ====================================================
-            // CATEGORY
-            // ====================================================
+                    setState(() {
+                      _selectedCategory = value;
+                    });
+                  },
+                ),
 
-            const SectionTitle(
-              title: 'Plant Category',
-            ),
+                const SizedBox(height: 10),
 
-            DropdownField(
-              label: 'Category *',
-              hintText: 'Select category',
-              value: _selectedCategory,
-              items: _categories,
-              onChanged: (value) {
-                setState(() {
-                  _selectedCategory = value;
-                });
-              },
-            ),
+                // SCHEDULE
+                const SectionTitle(
+                  title: 'Schedule & Timing',
+                ),
 
-            const SizedBox(height: 10),
+                CustomTextField(
+                  label: 'Planting Date',
+                  hintText: 'DD/MM/YYYY',
+                  controller: _dateController,
+                  readOnly: true,
+                  onTap: () => _selectDate(context),
+                  suffixIcon: const Icon(
+                    Icons.calendar_today_outlined,
+                    color: Color(0xFF134E39),
+                  ),
+                ),
 
-            // ====================================================
-            // SCHEDULE
-            // ====================================================
+                const SizedBox(height: 14),
 
-            const SectionTitle(
-              title: 'Schedule & Timing',
-            ),
+                // WATERING SCHEDULE
+                DropdownField(
+                  label: 'Watering Schedule *',
+                  hintText: 'Select schedule frequency',
+                  value: _selectedSchedule,
+                  items: [
+                    ..._schedules,
+                    if (_selectedSchedule != null &&
+                        !_schedules.contains(_selectedSchedule))
+                      _selectedSchedule!,
+                  ],
+                  onChanged: (value) async {
+                    if (_isSaving) return;
 
-            CustomTextField(
-              label: 'Planting Date',
-              hintText: 'DD/MM/YYYY',
-              controller: _dateController,
-              readOnly: true,
-              onTap: () => _selectDate(context),
-              suffixIcon: const Icon(
-                Icons.calendar_today_outlined,
-                color: Color(0xFF134E39),
-              ),
-            ),
+                    if (value == 'Custom') {
+                      await _showCustomScheduleDialog();
+                    } else {
+                      setState(() {
+                        _selectedSchedule = value;
+                      });
+                    }
+                  },
+                ),
 
-            const SizedBox(height: 14),
+                const SizedBox(height: 10),
 
-            // ====================================================
-            // WATERING SCHEDULE
-            // ====================================================
+                // NOTES
+                const SectionTitle(
+                  title: 'Additional Notes',
+                ),
 
-            DropdownField(
-              label: 'Watering Schedule *',
-              hintText: 'Select schedule frequency',
+                CustomTextField(
+                  label: 'Notes',
+                  hintText: 'Add notes about this plant...',
+                  controller: _notesController,
+                  maxLines: 4,
+                ),
 
-              // Important:
-              // This allows a custom value such as
-              // "Every 3 Days" to remain visible in the dropdown.
-              value: _selectedSchedule,
+                const SizedBox(height: 30),
 
-              items: [
-                ..._schedules,
+                // SAVE BUTTON
+                SaveButton(
+                  onPressed: _isSaving ? () {} : _handleSave,
+                ),
 
-                if (_selectedSchedule != null &&
-                    !_schedules.contains(_selectedSchedule))
-                  _selectedSchedule!,
+                const SizedBox(height: 20),
               ],
-
-              onChanged: (value) async {
-                if (value == 'Custom') {
-                  await _showCustomScheduleDialog();
-                } else {
-                  setState(() {
-                    _selectedSchedule = value;
-                  });
-                }
-              },
             ),
+          ),
 
-            const SizedBox(height: 10),
-
-            // ====================================================
-            // NOTES
-            // ====================================================
-
-            const SectionTitle(
-              title: 'Additional Notes',
-            ),
-
-            CustomTextField(
-              label: 'Notes',
-              hintText: 'Add notes about this plant...',
-              controller: _notesController,
-              maxLines: 4,
-            ),
-
-            const SizedBox(height: 30),
-
-            // ====================================================
-            // SAVE BUTTON
-            // ====================================================
-
-            SaveButton(
-              onPressed: () {
-                if (!_isSaving) {
-                  _handleSave();
-                }
-              },
-            ),
-
-            const SizedBox(height: 20),
-          ],
-        ),
+          // LOADING INDICATOR
+          if (_isSaving) _buildLoadingOverlay(),
+        ],
       ),
     );
   }
