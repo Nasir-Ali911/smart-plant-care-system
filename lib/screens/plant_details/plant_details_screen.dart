@@ -1,3 +1,4 @@
+
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:firebase_database/firebase_database.dart';
@@ -37,8 +38,8 @@ class PlantDetailsScreen extends StatelessWidget {
 
     return double.tryParse(
           value
-                  .toString()
-                  .replaceAll(RegExp(r'[^0-9.\-]'), ''),
+              .toString()
+              .replaceAll(RegExp(r'[^0-9.\-]'), ''),
         ) ??
         0.0;
   }
@@ -54,47 +55,33 @@ class PlantDetailsScreen extends StatelessWidget {
 
     return int.tryParse(
           value
-                  .toString()
-                  .replaceAll(RegExp(r'[^0-9\-]'), ''),
+              .toString()
+              .replaceAll(RegExp(r'[^0-9\-]'), ''),
         ) ??
         0;
   }
 
   // ============================================================
-  // TIMESTAMP PARSER
-  //
-  // Supports:
-  // - Unix milliseconds
-  // - Unix seconds
-  // - ISO date strings
+  // DATE FORMATTING
   // ============================================================
 
-  DateTime? _parseTimestamp(dynamic value) {
-    if (value == null) {
-      return null;
-    }
+  String _formatPlantingDate(DateTime date) {
+    const List<String> months = [
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec',
+    ];
 
-    if (value is num) {
-      final int number = value.toInt();
-
-      // Unix milliseconds.
-      if (number > 100000000000) {
-        return DateTime.fromMillisecondsSinceEpoch(
-          number,
-        );
-      }
-
-      // Unix seconds.
-      if (number > 1000000000) {
-        return DateTime.fromMillisecondsSinceEpoch(
-          number * 1000,
-        );
-      }
-    }
-
-    return DateTime.tryParse(
-      value.toString(),
-    );
+    return '${date.day} ${months[date.month - 1]} ${date.year}';
   }
 
   // ============================================================
@@ -108,26 +95,50 @@ class PlantDetailsScreen extends StatelessWidget {
     switch (value) {
       case 'DRY':
         return 'DRY';
-
       case 'MOIST':
         return 'MOIST';
-
       case 'NORMAL':
         return 'NORMAL';
-
       case 'WET':
         return 'WET';
-
       default:
         return value.isEmpty ? 'UNKNOWN' : value;
     }
   }
 
   // ============================================================
+  // TIMESTAMP PARSER
+  // ============================================================
+
+  DateTime? _parseTimestamp(dynamic value) {
+    if (value == null) {
+      return null;
+    }
+
+    if (value is num) {
+      final int number = value.toInt();
+
+      // Unix milliseconds.
+      if (number > 100000000000) {
+        return DateTime.fromMillisecondsSinceEpoch(number);
+      }
+
+      // Unix seconds.
+      if (number > 1000000000) {
+        return DateTime.fromMillisecondsSinceEpoch(
+          number * 1000,
+        );
+      }
+    }
+
+    return DateTime.tryParse(value.toString());
+  }
+
+  // ============================================================
   // DRY DURATION
   //
   // Finds the beginning of the current continuous DRY period
-  // from the available historical Firebase logs.
+  // from available historical Firebase logs.
   // ============================================================
 
   double _calculateDryDurationHours(
@@ -157,8 +168,7 @@ class PlantDetailsScreen extends StatelessWidget {
         if (timestamp != null) {
           records.add({
             'timestamp': timestamp,
-            'soilStatus':
-                data['SoilStatus']?.toString() ?? '',
+            'soilStatus': data['SoilStatus']?.toString() ?? '',
           });
         }
       }
@@ -168,7 +178,7 @@ class PlantDetailsScreen extends StatelessWidget {
       return 0.0;
     }
 
-    // Sort oldest -> newest.
+    // Sort oldest to newest.
     records.sort(
       (a, b) {
         final DateTime first =
@@ -192,8 +202,7 @@ class PlantDetailsScreen extends StatelessWidget {
               .toUpperCase();
 
       if (status.contains('DRY')) {
-        dryStart =
-            records[i]['timestamp'] as DateTime;
+        dryStart = records[i]['timestamp'] as DateTime;
       } else {
         break;
       }
@@ -203,18 +212,112 @@ class PlantDetailsScreen extends StatelessWidget {
       return 0.0;
     }
 
-    final DateTime now = DateTime.now();
-
     final int minutes =
-        now.difference(dryStart).inMinutes;
+        DateTime.now().difference(dryStart).inMinutes;
 
-    final double hours =
-        minutes / 60.0;
+    final double hours = minutes / 60.0;
 
-    return hours.clamp(
-      0.0,
-      24.0,
-    ).toDouble();
+    return hours.clamp(0.0, 24.0).toDouble();
+  }
+
+  // ============================================================
+  // ENVIRONMENTAL MONITORING
+  //
+  // All sensor values come directly from Firebase.
+  // ============================================================
+
+  Widget _buildEnvironmentalMonitoring(
+    DatabaseReference sensorReference,
+  ) {
+    return StreamBuilder<DatabaseEvent>(
+      stream: sensorReference.onValue,
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Center(
+            child: Padding(
+              padding: EdgeInsets.all(20),
+              child: CircularProgressIndicator(),
+            ),
+          );
+        }
+
+        if (snapshot.hasError) {
+          return _buildUnavailableCard(
+            'Unable to retrieve environmental sensor readings.',
+          );
+        }
+
+        final dynamic rawData = snapshot.data?.snapshot.value;
+
+        if (rawData is! Map) {
+          return _buildUnavailableCard(
+            'No environmental sensor data is currently available.',
+          );
+        }
+
+        final dynamic rawTemperature = rawData['Temperature'];
+        final dynamic rawHumidity = rawData['Humidity'];
+        final dynamic rawLight = rawData['LightIntensity'];
+        final dynamic rawSoilStatus = rawData['SoilStatus'];
+
+        final bool hasTemperature = rawTemperature != null;
+        final bool hasHumidity = rawHumidity != null;
+        final bool hasLight = rawLight != null;
+
+        final bool hasSoilStatus =
+            rawSoilStatus != null &&
+            rawSoilStatus.toString().trim().isNotEmpty;
+
+        final String soilStatus =
+            hasSoilStatus
+                ? _normalizeSoilStatus(rawSoilStatus)
+                : 'N/A';
+
+        return GridView.count(
+          crossAxisCount: 2,
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          crossAxisSpacing: 12,
+          mainAxisSpacing: 12,
+          childAspectRatio: 1.4,
+          children: [
+            SensorCard(
+              icon: Icons.thermostat_outlined,
+              title: 'Temperature',
+              value: hasTemperature
+                  ? '${_toDouble(rawTemperature).toStringAsFixed(1)}°C'
+                  : 'N/A',
+              status: hasTemperature ? 'Live' : 'No data',
+            ),
+
+            SensorCard(
+              icon: Icons.water_drop_outlined,
+              title: 'Soil Status',
+              value: soilStatus,
+              status: hasSoilStatus ? 'Live' : 'No data',
+            ),
+
+            SensorCard(
+              icon: Icons.air_outlined,
+              title: 'Humidity',
+              value: hasHumidity
+                  ? '${_toDouble(rawHumidity).toStringAsFixed(1)}%'
+                  : 'N/A',
+              status: hasHumidity ? 'Live' : 'No data',
+            ),
+
+            SensorCard(
+              icon: Icons.wb_sunny_outlined,
+              title: 'Light Intensity',
+              value: hasLight
+                  ? '${_toInt(rawLight)} ADC'
+                  : 'N/A',
+              status: hasLight ? 'Live' : 'No data',
+            ),
+          ],
+        );
+      },
+    );
   }
 
   // ============================================================
@@ -225,8 +328,7 @@ class PlantDetailsScreen extends StatelessWidget {
     DataSnapshot sensorSnapshot,
     DataSnapshot? logSnapshot,
   ) {
-    final dynamic rawData =
-        sensorSnapshot.value;
+    final dynamic rawData = sensorSnapshot.value;
 
     if (rawData is! Map) {
       return _buildUnavailableCard(
@@ -234,118 +336,94 @@ class PlantDetailsScreen extends StatelessWidget {
       );
     }
 
-    // ----------------------------------------------------------
-    // Current Firebase sensor values
-    // ----------------------------------------------------------
+    // Required sensor readings.
+    if (rawData['Temperature'] == null ||
+        rawData['Humidity'] == null ||
+        rawData['LightIntensity'] == null ||
+        rawData['SoilStatus'] == null) {
+      return _buildUnavailableCard(
+        'Some required sensor readings are missing. '
+        'AI recommendation is temporarily unavailable.',
+      );
+    }
 
     final double temperature =
-        _toDouble(
-      rawData['Temperature'],
-    );
+        _toDouble(rawData['Temperature']);
 
     final double humidity =
-        _toDouble(
-      rawData['Humidity'],
-    );
+        _toDouble(rawData['Humidity']);
 
     final int lightIntensity =
-        _toInt(
-      rawData['LightIntensity'],
-    );
+        _toInt(rawData['LightIntensity']);
 
     final String soilStatus =
-        _normalizeSoilStatus(
-      rawData['SoilStatus'],
-    );
+        _normalizeSoilStatus(rawData['SoilStatus']);
 
-    // ----------------------------------------------------------
-    // Historical dry duration
-    // ----------------------------------------------------------
+    if (soilStatus == 'UNKNOWN') {
+      return _buildUnavailableCard(
+        'Soil status is unavailable. '
+        'AI recommendation cannot be generated.',
+      );
+    }
 
+    // Historical dry duration.
     final double dryDurationHours =
         _calculateDryDurationHours(
       logSnapshot,
       soilStatus,
     );
 
-    // ----------------------------------------------------------
-    // Recommendation
+    // Recommendation.
     //
     // mlProbability intentionally remains null.
-    //
-    // The current experimental Random Forest model is not being
+    // The experimental Random Forest model is not being
     // presented as a validated production prediction model.
-    // ----------------------------------------------------------
 
     final AIRecommendation recommendation =
-        AIRecommendationService
-            .generateRecommendation(
+        AIRecommendationService.generateRecommendation(
       temperature: temperature,
       humidity: humidity,
       lightIntensity: lightIntensity,
       soilStatus: soilStatus,
-      dryDurationHours:
-          dryDurationHours,
+      dryDurationHours: dryDurationHours,
       mlProbability: null,
     );
 
     final Color urgencyColor =
-        _getUrgencyColor(
-      recommendation.urgency,
-    );
+        _getUrgencyColor(recommendation.urgency);
 
     return Container(
       width: double.infinity,
-      padding:
-          const EdgeInsets.all(18),
+      padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius:
-            BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(16),
         border: Border.all(
-          color: urgencyColor.withValues(
-            alpha: 0.12,
-          ),
+          color: urgencyColor.withValues(alpha: 0.12),
         ),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(
-              alpha: 0.04,
-            ),
+            color: Colors.black.withValues(alpha: 0.04),
             blurRadius: 10,
-            offset:
-                const Offset(0, 4),
+            offset: const Offset(0, 4),
           ),
         ],
       ),
       child: Column(
-        crossAxisAlignment:
-            CrossAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // ======================================================
-          // RECOMMENDATION HEADER
-          // ======================================================
-
+          // Recommendation header.
           Row(
             children: [
               Container(
-                padding:
-                    const EdgeInsets.all(10),
-                decoration:
-                    BoxDecoration(
-                  color:
-                      const Color(
-                    0xFFE7F3ED,
-                  ),
-                  borderRadius:
-                      BorderRadius.circular(
-                    12,
-                  ),
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFE7F3ED),
+                  borderRadius: BorderRadius.circular(12),
                 ),
                 child: const Icon(
                   Icons.auto_awesome,
-                  color:
-                      Color(0xFF134E39),
+                  color: Color(0xFF134E39),
                   size: 24,
                 ),
               ),
@@ -355,15 +433,10 @@ class PlantDetailsScreen extends StatelessWidget {
               Expanded(
                 child: Text(
                   recommendation.title,
-                  style:
-                      GoogleFonts.poppins(
+                  style: GoogleFonts.poppins(
                     fontSize: 17,
-                    fontWeight:
-                        FontWeight.bold,
-                    color:
-                        const Color(
-                      0xFF134E39,
-                    ),
+                    fontWeight: FontWeight.bold,
+                    color: const Color(0xFF134E39),
                   ),
                 ),
               ),
@@ -372,14 +445,10 @@ class PlantDetailsScreen extends StatelessWidget {
 
           const SizedBox(height: 14),
 
-          // ======================================================
-          // MESSAGE
-          // ======================================================
-
+          // Recommendation message.
           Text(
             recommendation.message,
-            style:
-                GoogleFonts.poppins(
+            style: GoogleFonts.poppins(
               fontSize: 13,
               height: 1.5,
               color: Colors.black87,
@@ -388,22 +457,15 @@ class PlantDetailsScreen extends StatelessWidget {
 
           const SizedBox(height: 18),
 
-          // ======================================================
-          // SCORE + URGENCY
-          // ======================================================
-
+          // Score and urgency.
           Row(
             children: [
               Expanded(
                 child: _buildMetricBox(
-                  label:
-                      'Recommendation Score',
+                  label: 'Recommendation Score',
                   value:
                       '${recommendation.score.toStringAsFixed(0)}/100',
-                  valueColor:
-                      const Color(
-                    0xFF134E39,
-                  ),
+                  valueColor: const Color(0xFF134E39),
                 ),
               ),
 
@@ -412,11 +474,8 @@ class PlantDetailsScreen extends StatelessWidget {
               Expanded(
                 child: _buildMetricBox(
                   label: 'Urgency',
-                  value:
-                      recommendation
-                          .urgency,
-                  valueColor:
-                      urgencyColor,
+                  value: recommendation.urgency,
+                  valueColor: urgencyColor,
                 ),
               ),
             ],
@@ -424,42 +483,26 @@ class PlantDetailsScreen extends StatelessWidget {
 
           const SizedBox(height: 14),
 
-          // ======================================================
-          // ACTUAL FIREBASE INPUTS
-          // ======================================================
-
+          // Actual Firebase inputs.
           Container(
             width: double.infinity,
-            padding:
-                const EdgeInsets.all(12),
-            decoration:
-                BoxDecoration(
-              color:
-                  Colors.grey.shade50,
-              borderRadius:
-                  BorderRadius.circular(
-                10,
-              ),
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: Colors.grey.shade50,
+              borderRadius: BorderRadius.circular(10),
               border: Border.all(
-                color:
-                    Colors.grey.shade200,
+                color: Colors.grey.shade200,
               ),
             ),
             child: Column(
-              crossAxisAlignment:
-                  CrossAxisAlignment.start,
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
                   'Current Sensor Inputs',
-                  style:
-                      GoogleFonts.poppins(
+                  style: GoogleFonts.poppins(
                     fontSize: 12,
-                    fontWeight:
-                        FontWeight.bold,
-                    color:
-                        const Color(
-                      0xFF134E39,
-                    ),
+                    fontWeight: FontWeight.bold,
+                    color: const Color(0xFF134E39),
                   ),
                 ),
 
@@ -498,13 +541,10 @@ class PlantDetailsScreen extends StatelessWidget {
           Text(
             'Recommendation generated from current '
             'sensor readings and available historical soil data.',
-            style:
-                GoogleFonts.poppins(
+            style: GoogleFonts.poppins(
               fontSize: 10,
-              fontStyle:
-                  FontStyle.italic,
-              color:
-                  Colors.grey.shade600,
+              fontStyle: FontStyle.italic,
+              color: Colors.grey.shade600,
             ),
           ),
         ],
@@ -522,26 +562,19 @@ class PlantDetailsScreen extends StatelessWidget {
     required Color valueColor,
   }) {
     return Container(
-      padding:
-          const EdgeInsets.all(12),
-      decoration:
-          BoxDecoration(
-        color:
-            const Color(0xFFF4F7F5),
-        borderRadius:
-            BorderRadius.circular(12),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF4F7F5),
+        borderRadius: BorderRadius.circular(12),
       ),
       child: Column(
-        crossAxisAlignment:
-            CrossAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
             label,
-            style:
-                GoogleFonts.poppins(
+            style: GoogleFonts.poppins(
               fontSize: 11,
-              color:
-                  Colors.grey.shade600,
+              color: Colors.grey.shade600,
             ),
           ),
 
@@ -549,11 +582,9 @@ class PlantDetailsScreen extends StatelessWidget {
 
           Text(
             value,
-            style:
-                GoogleFonts.poppins(
+            style: GoogleFonts.poppins(
               fontSize: 19,
-              fontWeight:
-                  FontWeight.bold,
+              fontWeight: FontWeight.bold,
               color: valueColor,
             ),
           ),
@@ -571,32 +602,25 @@ class PlantDetailsScreen extends StatelessWidget {
     String value,
   ) {
     return Padding(
-      padding:
-          const EdgeInsets.only(
-        bottom: 4,
-      ),
+      padding: const EdgeInsets.only(bottom: 4),
       child: Row(
         children: [
           Expanded(
             child: Text(
               label,
-              style:
-                  GoogleFonts.poppins(
+              style: GoogleFonts.poppins(
                 fontSize: 11,
-                color:
-                    Colors.grey.shade700,
+                color: Colors.grey.shade700,
               ),
             ),
           ),
+
           Text(
             value,
-            style:
-                GoogleFonts.poppins(
+            style: GoogleFonts.poppins(
               fontSize: 11,
-              fontWeight:
-                  FontWeight.w600,
-              color:
-                  Colors.grey.shade800,
+              fontWeight: FontWeight.w600,
+              color: Colors.grey.shade800,
             ),
           ),
         ],
@@ -608,25 +632,16 @@ class PlantDetailsScreen extends StatelessWidget {
   // URGENCY COLOR
   // ============================================================
 
-  Color _getUrgencyColor(
-    String urgency,
-  ) {
-    switch (
-        urgency.trim().toUpperCase()) {
+  Color _getUrgencyColor(String urgency) {
+    switch (urgency.trim().toUpperCase()) {
       case 'HIGH':
-        return const Color(
-          0xFFD64545,
-        );
+        return const Color(0xFFD64545);
 
       case 'MEDIUM':
-        return const Color(
-          0xFFE08C0B,
-        );
+        return const Color(0xFFE08C0B);
 
       default:
-        return const Color(
-          0xFF134E39,
-        );
+        return const Color(0xFF134E39);
     }
   }
 
@@ -634,27 +649,18 @@ class PlantDetailsScreen extends StatelessWidget {
   // UNAVAILABLE CARD
   // ============================================================
 
-  Widget _buildUnavailableCard(
-    String message,
-  ) {
+  Widget _buildUnavailableCard(String message) {
     return Container(
       width: double.infinity,
-      padding:
-          const EdgeInsets.all(18),
-      decoration:
-          BoxDecoration(
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius:
-            BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(16),
         boxShadow: [
           BoxShadow(
-            color:
-                Colors.black.withValues(
-              alpha: 0.03,
-            ),
+            color: Colors.black.withValues(alpha: 0.03),
             blurRadius: 10,
-            offset:
-                const Offset(0, 4),
+            offset: const Offset(0, 4),
           ),
         ],
       ),
@@ -662,8 +668,7 @@ class PlantDetailsScreen extends StatelessWidget {
         children: [
           const Icon(
             Icons.info_outline,
-            color:
-                Color(0xFF134E39),
+            color: Color(0xFF134E39),
           ),
 
           const SizedBox(width: 12),
@@ -671,11 +676,9 @@ class PlantDetailsScreen extends StatelessWidget {
           Expanded(
             child: Text(
               message,
-              style:
-                  GoogleFonts.poppins(
+              style: GoogleFonts.poppins(
                 fontSize: 13,
-                color:
-                    Colors.grey.shade700,
+                color: Colors.grey.shade700,
               ),
             ),
           ),
@@ -689,17 +692,10 @@ class PlantDetailsScreen extends StatelessWidget {
   // ============================================================
 
   @override
-  Widget build(
-    BuildContext context,
-  ) {
-    // ----------------------------------------------------------
-    // Firebase references
-    // ----------------------------------------------------------
-
+  Widget build(BuildContext context) {
+    // Firebase references.
     final DatabaseReference sensorReference =
-        FirebaseDatabase.instance.ref(
-      'SmartPlant',
-    );
+        FirebaseDatabase.instance.ref('SmartPlant');
 
     final Query logsReference =
         FirebaseDatabase.instance
@@ -707,23 +703,20 @@ class PlantDetailsScreen extends StatelessWidget {
             .limitToLast(1500);
 
     return Scaffold(
-      backgroundColor:
-          const Color(0xFFF4F7F5),
+      backgroundColor: const Color(0xFFF4F7F5),
 
       // ========================================================
       // APP BAR
       // ========================================================
 
       appBar: AppBar(
-        backgroundColor:
-            Colors.white,
+        backgroundColor: Colors.white,
         elevation: 0,
 
         leading: IconButton(
           icon: const Icon(
             Icons.arrow_back,
-            color:
-                Color(0xFF134E39),
+            color: Color(0xFF134E39),
           ),
           onPressed: () {
             Navigator.pop(context);
@@ -732,15 +725,10 @@ class PlantDetailsScreen extends StatelessWidget {
 
         title: Text(
           plant.name,
-          style:
-              GoogleFonts.poppins(
+          style: GoogleFonts.poppins(
             fontSize: 18,
-            fontWeight:
-                FontWeight.bold,
-            color:
-                const Color(
-              0xFF134E39,
-            ),
+            fontWeight: FontWeight.bold,
+            color: const Color(0xFF134E39),
           ),
         ),
 
@@ -748,16 +736,13 @@ class PlantDetailsScreen extends StatelessWidget {
           IconButton(
             icon: const Icon(
               Icons.edit_outlined,
-              color:
-                  Color(0xFF134E39),
+              color: Color(0xFF134E39),
             ),
             onPressed: () async {
               await Navigator.push(
                 context,
                 MaterialPageRoute(
-                  builder:
-                      (context) =>
-                          EditPlantScreen(
+                  builder: (context) => EditPlantScreen(
                     plant: plant,
                   ),
                 ),
@@ -771,16 +756,11 @@ class PlantDetailsScreen extends StatelessWidget {
       // BODY
       // ========================================================
 
-      body:
-          SingleChildScrollView(
-        padding:
-            const EdgeInsets.all(
-          16.0,
-        ),
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.all(16.0),
 
         child: Column(
-          crossAxisAlignment:
-              CrossAxisAlignment.start,
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             // ==================================================
             // 1. PLANT HEADER
@@ -790,9 +770,7 @@ class PlantDetailsScreen extends StatelessWidget {
               plant: plant,
             ),
 
-            const SizedBox(
-              height: 20,
-            ),
+            const SizedBox(height: 20),
 
             // ==================================================
             // 2. CAMERA
@@ -800,168 +778,76 @@ class PlantDetailsScreen extends StatelessWidget {
 
             const PlantCameraCard(),
 
-            const SizedBox(
-              height: 20,
-            ),
+            const SizedBox(height: 20),
 
             // ==================================================
             // 3. ENVIRONMENTAL MONITORING
             // ==================================================
 
             const SectionTitle(
-              title:
-                  'Environmental Monitoring',
+              title: 'Environmental Monitoring',
             ),
 
-            const SizedBox(
-              height: 8,
+            const SizedBox(height: 8),
+
+            _buildEnvironmentalMonitoring(
+              sensorReference,
             ),
 
-            GridView.count(
-              crossAxisCount: 2,
-              shrinkWrap: true,
-              physics:
-                  const NeverScrollableScrollPhysics(),
-              crossAxisSpacing: 12,
-              mainAxisSpacing: 12,
-              childAspectRatio: 1.4,
-              children: [
-                SensorCard(
-                  icon:
-                      Icons.thermostat_outlined,
-                  title:
-                      'Temperature',
-                  value:
-                      plant.temperature,
-                  status:
-                      'Live',
-                ),
-
-                SensorCard(
-                  icon:
-                      Icons.water_drop_outlined,
-                  title:
-                      'Soil Moisture',
-                  value:
-                      plant.moisture,
-                  status:
-                      'Live',
-                ),
-
-                const SensorCard(
-                  icon:
-                      Icons.air_outlined,
-                  title:
-                      'Humidity',
-                  value:
-                      'Live',
-                  status:
-                      'Firebase',
-                ),
-
-                const SensorCard(
-                  icon:
-                      Icons.wb_sunny_outlined,
-                  title:
-                      'Light Intensity',
-                  value:
-                      'Live',
-                  status:
-                      'Firebase',
-                ),
-              ],
-            ),
-
-            const SizedBox(
-              height: 20,
-            ),
+            const SizedBox(height: 20),
 
             // ==================================================
             // 4. AI WATERING RECOMMENDATION
             // ==================================================
 
             const SectionTitle(
-              title:
-                  'AI Watering Recommendation',
+              title: 'AI Watering Recommendation',
             ),
 
-            const SizedBox(
-              height: 8,
-            ),
+            const SizedBox(height: 8),
 
             StreamBuilder<DatabaseEvent>(
-              stream:
-                  sensorReference.onValue,
-              builder:
-                  (
-                context,
-                sensorSnapshot,
-              ) {
-                if (sensorSnapshot
-                        .connectionState ==
+              stream: sensorReference.onValue,
+              builder: (context, sensorSnapshot) {
+                if (sensorSnapshot.connectionState ==
                     ConnectionState.waiting) {
                   return Container(
-                    width:
-                        double.infinity,
-                    padding:
-                        const EdgeInsets.all(
-                      24,
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(24),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(16),
                     ),
-                    decoration:
-                        BoxDecoration(
-                      color:
-                          Colors.white,
-                      borderRadius:
-                          BorderRadius.circular(
-                        16,
-                      ),
-                    ),
-                    child:
-                        const Center(
-                      child:
-                          CircularProgressIndicator(),
+                    child: const Center(
+                      child: CircularProgressIndicator(),
                     ),
                   );
                 }
 
-                if (sensorSnapshot
-                    .hasError) {
+                if (sensorSnapshot.hasError) {
                   return _buildUnavailableCard(
                     'Unable to read current Firebase sensor data.',
                   );
                 }
 
-                final DatabaseEvent?
-                    sensorEvent =
+                final DatabaseEvent? sensorEvent =
                     sensorSnapshot.data;
 
-                if (sensorEvent ==
-                    null) {
+                if (sensorEvent == null) {
                   return _buildUnavailableCard(
                     'Waiting for current Firebase sensor data...',
                   );
                 }
 
-                return StreamBuilder<
-                    DatabaseEvent>(
-                  stream:
-                      logsReference.onValue,
-                  builder:
-                      (
-                    context,
-                    logSnapshot,
-                  ) {
-                    DataSnapshot?
-                        historicalSnapshot;
+                return StreamBuilder<DatabaseEvent>(
+                  stream: logsReference.onValue,
+                  builder: (context, logSnapshot) {
+                    DataSnapshot? historicalSnapshot;
 
-                    if (!logSnapshot
-                            .hasError &&
-                        logSnapshot.data !=
-                            null) {
+                    if (!logSnapshot.hasError &&
+                        logSnapshot.data != null) {
                       historicalSnapshot =
-                          logSnapshot
-                              .data!
-                              .snapshot;
+                          logSnapshot.data!.snapshot;
                     }
 
                     return _buildAIRecommendationCard(
@@ -973,86 +859,56 @@ class PlantDetailsScreen extends StatelessWidget {
               },
             ),
 
-            const SizedBox(
-              height: 20,
-            ),
+            const SizedBox(height: 20),
 
             // ==================================================
-            // 6. PLANT INFORMATION
+            // 5. PLANT INFORMATION
+            // ==================================================
+
+            if (plant.species.trim().isNotEmpty ||
+                plant.location.trim().isNotEmpty) ...[
+              const SectionTitle(
+                title: 'Plant Information',
+              ),
+
+              const SizedBox(height: 8),
+
+              if (plant.species.trim().isNotEmpty)
+                InfoTile(
+                  label: 'Species',
+                  value: plant.species,
+                  icon: Icons.eco_outlined,
+                ),
+
+              if (plant.location.trim().isNotEmpty)
+                InfoTile(
+                  label: 'Location',
+                  value: plant.location,
+                  icon: Icons.location_on_outlined,
+                ),
+
+              const SizedBox(height: 8),
+            ],
+
+            // ==================================================
+            // 6. PLANTING DATE
+            //
+            // Uses the existing PlantModel.addedDate.
             // ==================================================
 
             const SectionTitle(
-              title:
-                  'Plant Information',
+              title: 'Plant Information',
             ),
 
-            const SizedBox(
-              height: 8,
-            ),
+            const SizedBox(height: 8),
 
             InfoTile(
-              label:
-                  'Species',
-              value:
-                  plant.species,
-              icon:
-                  Icons.eco_outlined,
+              label: 'Planting Date',
+              value: _formatPlantingDate(plant.addedDate),
+              icon: Icons.calendar_today_outlined,
             ),
 
-            InfoTile(
-              label:
-                  'Location',
-              value:
-                  plant.location,
-              icon:
-                  Icons.location_on_outlined,
-            ),
-
-            // --------------------------------------------------
-            // Existing static project information.
-            // These are NOT being presented as Firebase history.
-            // --------------------------------------------------
-
-            const InfoTile(
-              label:
-                  'Planting Date',
-              value:
-                  '12 Jan 2026',
-              icon:
-                  Icons.calendar_today_outlined,
-            ),
-
-            InfoTile(
-              label:
-                  'Last Watered',
-              value:
-                  plant.lastUpdated,
-              icon:
-                  Icons.access_time_outlined,
-            ),
-
-            const InfoTile(
-              label:
-                  'Growth Stage',
-              value:
-                  'Vegetative',
-              icon:
-                  Icons.trending_up_outlined,
-            ),
-
-            const InfoTile(
-              label:
-                  'Sensor Status',
-              value:
-                  'Active',
-              icon:
-                  Icons.sensors_outlined,
-            ),
-
-            const SizedBox(
-              height: 20,
-            ),
-
+            const SizedBox(height: 20),
           ],
         ),
       ),
