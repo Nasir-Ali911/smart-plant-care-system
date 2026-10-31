@@ -1,4 +1,3 @@
-
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:firebase_database/firebase_database.dart';
@@ -28,35 +27,29 @@ class PlantDetailsScreen extends StatelessWidget {
   // ============================================================
 
   double _toDouble(dynamic value) {
-    if (value == null) {
-      return 0.0;
-    }
+    if (value == null) return 0.0;
 
-    if (value is num) {
-      return value.toDouble();
-    }
+    if (value is num) return value.toDouble();
 
     return double.tryParse(
-          value
-              .toString()
-              .replaceAll(RegExp(r'[^0-9.\-]'), ''),
+          value.toString().replaceAll(
+                RegExp(r'[^0-9.\-]'),
+                '',
+              ),
         ) ??
         0.0;
   }
 
   int _toInt(dynamic value) {
-    if (value == null) {
-      return 0;
-    }
+    if (value == null) return 0;
 
-    if (value is num) {
-      return value.toInt();
-    }
+    if (value is num) return value.toInt();
 
     return int.tryParse(
-          value
-              .toString()
-              .replaceAll(RegExp(r'[^0-9\-]'), ''),
+          value.toString().replaceAll(
+                RegExp(r'[^0-9\-]'),
+                '',
+              ),
         ) ??
         0;
   }
@@ -67,18 +60,9 @@ class PlantDetailsScreen extends StatelessWidget {
 
   String _formatPlantingDate(DateTime date) {
     const List<String> months = [
-      'Jan',
-      'Feb',
-      'Mar',
-      'Apr',
-      'May',
-      'Jun',
-      'Jul',
-      'Aug',
-      'Sep',
-      'Oct',
-      'Nov',
-      'Dec',
+      'Jan', 'Feb', 'Mar', 'Apr',
+      'May', 'Jun', 'Jul', 'Aug',
+      'Sep', 'Oct', 'Nov', 'Dec',
     ];
 
     return '${date.day} ${months[date.month - 1]} ${date.year}';
@@ -111,19 +95,15 @@ class PlantDetailsScreen extends StatelessWidget {
   // ============================================================
 
   DateTime? _parseTimestamp(dynamic value) {
-    if (value == null) {
-      return null;
-    }
+    if (value == null) return null;
 
     if (value is num) {
       final int number = value.toInt();
 
-      // Unix milliseconds.
       if (number > 100000000000) {
         return DateTime.fromMillisecondsSinceEpoch(number);
       }
 
-      // Unix seconds.
       if (number > 1000000000) {
         return DateTime.fromMillisecondsSinceEpoch(
           number * 1000,
@@ -135,24 +115,16 @@ class PlantDetailsScreen extends StatelessWidget {
   }
 
   // ============================================================
-  // DRY DURATION
-  //
-  // Finds the beginning of the current continuous DRY period
-  // from available historical Firebase logs.
+  // DRY DURATION CALCULATION
   // ============================================================
 
   double _calculateDryDurationHours(
     DataSnapshot? logSnapshot,
     String currentSoilStatus,
   ) {
-    if (logSnapshot == null) {
-      return 0.0;
-    }
+    if (logSnapshot == null) return 0.0;
 
-    final String currentSoil =
-        currentSoilStatus.trim().toUpperCase();
-
-    if (!currentSoil.contains('DRY')) {
+    if (!currentSoilStatus.toUpperCase().contains('DRY')) {
       return 0.0;
     }
 
@@ -174,32 +146,18 @@ class PlantDetailsScreen extends StatelessWidget {
       }
     }
 
-    if (records.isEmpty) {
-      return 0.0;
-    }
+    if (records.isEmpty) return 0.0;
 
-    // Sort oldest to newest.
-    records.sort(
-      (a, b) {
-        final DateTime first =
-            a['timestamp'] as DateTime;
-
-        final DateTime second =
-            b['timestamp'] as DateTime;
-
-        return first.compareTo(second);
-      },
-    );
+    records.sort((a, b) {
+      return (a['timestamp'] as DateTime)
+          .compareTo(b['timestamp'] as DateTime);
+    });
 
     DateTime? dryStart;
 
-    // Scan backwards through the current continuous DRY period.
     for (int i = records.length - 1; i >= 0; i--) {
       final String status =
-          records[i]['soilStatus']
-              .toString()
-              .trim()
-              .toUpperCase();
+          records[i]['soilStatus'].toString().toUpperCase().trim();
 
       if (status.contains('DRY')) {
         dryStart = records[i]['timestamp'] as DateTime;
@@ -208,22 +166,16 @@ class PlantDetailsScreen extends StatelessWidget {
       }
     }
 
-    if (dryStart == null) {
-      return 0.0;
-    }
+    if (dryStart == null) return 0.0;
 
     final int minutes =
         DateTime.now().difference(dryStart).inMinutes;
 
-    final double hours = minutes / 60.0;
-
-    return hours.clamp(0.0, 24.0).toDouble();
+    return (minutes / 60.0).clamp(0.0, 24.0).toDouble();
   }
 
   // ============================================================
   // ENVIRONMENTAL MONITORING
-  //
-  // All sensor values come directly from Firebase.
   // ============================================================
 
   Widget _buildEnvironmentalMonitoring(
@@ -268,10 +220,9 @@ class PlantDetailsScreen extends StatelessWidget {
             rawSoilStatus != null &&
             rawSoilStatus.toString().trim().isNotEmpty;
 
-        final String soilStatus =
-            hasSoilStatus
-                ? _normalizeSoilStatus(rawSoilStatus)
-                : 'N/A';
+        final String soilStatus = hasSoilStatus
+            ? _normalizeSoilStatus(rawSoilStatus)
+            : 'N/A';
 
         return GridView.count(
           crossAxisCount: 2,
@@ -289,14 +240,12 @@ class PlantDetailsScreen extends StatelessWidget {
                   : 'N/A',
               status: hasTemperature ? 'Live' : 'No data',
             ),
-
             SensorCard(
               icon: Icons.water_drop_outlined,
               title: 'Soil Status',
               value: soilStatus,
               status: hasSoilStatus ? 'Live' : 'No data',
             ),
-
             SensorCard(
               icon: Icons.air_outlined,
               title: 'Humidity',
@@ -305,7 +254,6 @@ class PlantDetailsScreen extends StatelessWidget {
                   : 'N/A',
               status: hasHumidity ? 'Live' : 'No data',
             ),
-
             SensorCard(
               icon: Icons.wb_sunny_outlined,
               title: 'Light Intensity',
@@ -336,7 +284,6 @@ class PlantDetailsScreen extends StatelessWidget {
       );
     }
 
-    // Required sensor readings.
     if (rawData['Temperature'] == null ||
         rawData['Humidity'] == null ||
         rawData['LightIntensity'] == null ||
@@ -366,18 +313,11 @@ class PlantDetailsScreen extends StatelessWidget {
       );
     }
 
-    // Historical dry duration.
     final double dryDurationHours =
         _calculateDryDurationHours(
       logSnapshot,
       soilStatus,
     );
-
-    // Recommendation.
-    //
-    // mlProbability intentionally remains null.
-    // The experimental Random Forest model is not being
-    // presented as a validated production prediction model.
 
     final AIRecommendation recommendation =
         AIRecommendationService.generateRecommendation(
@@ -412,7 +352,6 @@ class PlantDetailsScreen extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Recommendation header.
           Row(
             children: [
               Container(
@@ -427,9 +366,7 @@ class PlantDetailsScreen extends StatelessWidget {
                   size: 24,
                 ),
               ),
-
               const SizedBox(width: 12),
-
               Expanded(
                 child: Text(
                   recommendation.title,
@@ -445,7 +382,6 @@ class PlantDetailsScreen extends StatelessWidget {
 
           const SizedBox(height: 14),
 
-          // Recommendation message.
           Text(
             recommendation.message,
             style: GoogleFonts.poppins(
@@ -457,7 +393,6 @@ class PlantDetailsScreen extends StatelessWidget {
 
           const SizedBox(height: 18),
 
-          // Score and urgency.
           Row(
             children: [
               Expanded(
@@ -468,9 +403,7 @@ class PlantDetailsScreen extends StatelessWidget {
                   valueColor: const Color(0xFF134E39),
                 ),
               ),
-
               const SizedBox(width: 12),
-
               Expanded(
                 child: _buildMetricBox(
                   label: 'Urgency',
@@ -483,7 +416,6 @@ class PlantDetailsScreen extends StatelessWidget {
 
           const SizedBox(height: 14),
 
-          // Actual Firebase inputs.
           Container(
             width: double.infinity,
             padding: const EdgeInsets.all(12),
@@ -505,29 +437,23 @@ class PlantDetailsScreen extends StatelessWidget {
                     color: const Color(0xFF134E39),
                   ),
                 ),
-
                 const SizedBox(height: 8),
-
                 _buildInputRow(
                   'Temperature',
                   '${temperature.toStringAsFixed(1)}°C',
                 ),
-
                 _buildInputRow(
                   'Humidity',
                   '${humidity.toStringAsFixed(1)}%',
                 ),
-
                 _buildInputRow(
                   'Light Intensity',
                   '$lightIntensity ADC',
                 ),
-
                 _buildInputRow(
                   'Soil Status',
                   soilStatus,
                 ),
-
                 _buildInputRow(
                   'Dry Duration',
                   '${dryDurationHours.toStringAsFixed(1)} hours',
@@ -577,9 +503,7 @@ class PlantDetailsScreen extends StatelessWidget {
               color: Colors.grey.shade600,
             ),
           ),
-
           const SizedBox(height: 4),
-
           Text(
             value,
             style: GoogleFonts.poppins(
@@ -597,10 +521,7 @@ class PlantDetailsScreen extends StatelessWidget {
   // INPUT ROW
   // ============================================================
 
-  Widget _buildInputRow(
-    String label,
-    String value,
-  ) {
+  Widget _buildInputRow(String label, String value) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 4),
       child: Row(
@@ -614,7 +535,6 @@ class PlantDetailsScreen extends StatelessWidget {
               ),
             ),
           ),
-
           Text(
             value,
             style: GoogleFonts.poppins(
@@ -636,10 +556,8 @@ class PlantDetailsScreen extends StatelessWidget {
     switch (urgency.trim().toUpperCase()) {
       case 'HIGH':
         return const Color(0xFFD64545);
-
       case 'MEDIUM':
         return const Color(0xFFE08C0B);
-
       default:
         return const Color(0xFF134E39);
     }
@@ -670,9 +588,7 @@ class PlantDetailsScreen extends StatelessWidget {
             Icons.info_outline,
             color: Color(0xFF134E39),
           ),
-
           const SizedBox(width: 12),
-
           Expanded(
             child: Text(
               message,
@@ -693,7 +609,6 @@ class PlantDetailsScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // Firebase references.
     final DatabaseReference sensorReference =
         FirebaseDatabase.instance.ref('SmartPlant');
 
@@ -712,7 +627,6 @@ class PlantDetailsScreen extends StatelessWidget {
       appBar: AppBar(
         backgroundColor: Colors.white,
         elevation: 0,
-
         leading: IconButton(
           icon: const Icon(
             Icons.arrow_back,
@@ -722,7 +636,6 @@ class PlantDetailsScreen extends StatelessWidget {
             Navigator.pop(context);
           },
         ),
-
         title: Text(
           plant.name,
           style: GoogleFonts.poppins(
@@ -731,7 +644,6 @@ class PlantDetailsScreen extends StatelessWidget {
             color: const Color(0xFF134E39),
           ),
         ),
-
         actions: [
           IconButton(
             icon: const Icon(
@@ -758,7 +670,6 @@ class PlantDetailsScreen extends StatelessWidget {
 
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(16.0),
-
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -863,37 +774,9 @@ class PlantDetailsScreen extends StatelessWidget {
 
             // ==================================================
             // 5. PLANT INFORMATION
-            // ==================================================
-
-            if (plant.species.trim().isNotEmpty ||
-                plant.location.trim().isNotEmpty) ...[
-              const SectionTitle(
-                title: 'Plant Information',
-              ),
-
-              const SizedBox(height: 8),
-
-              if (plant.species.trim().isNotEmpty)
-                InfoTile(
-                  label: 'Species',
-                  value: plant.species,
-                  icon: Icons.eco_outlined,
-                ),
-
-              if (plant.location.trim().isNotEmpty)
-                InfoTile(
-                  label: 'Location',
-                  value: plant.location,
-                  icon: Icons.location_on_outlined,
-                ),
-
-              const SizedBox(height: 8),
-            ],
-
-            // ==================================================
-            // 6. PLANTING DATE
             //
-            // Uses the existing PlantModel.addedDate.
+            // All plant information is displayed in ONE section.
+            // Planting Date is always preserved.
             // ==================================================
 
             const SectionTitle(
@@ -901,6 +784,20 @@ class PlantDetailsScreen extends StatelessWidget {
             ),
 
             const SizedBox(height: 8),
+
+            if (plant.species.trim().isNotEmpty)
+              InfoTile(
+                label: 'Species',
+                value: plant.species,
+                icon: Icons.eco_outlined,
+              ),
+
+            if (plant.location.trim().isNotEmpty)
+              InfoTile(
+                label: 'Location',
+                value: plant.location,
+                icon: Icons.location_on_outlined,
+              ),
 
             InfoTile(
               label: 'Planting Date',
